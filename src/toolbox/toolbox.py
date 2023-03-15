@@ -135,7 +135,7 @@ class PlotCanvas:
         self.figs = figs
         self.axes = axes
 
-    def plot(self, metadata, data, dict={}):
+    def plot(self, metadata, data, **kwargs):
         metadata=metadata.copy()
         if not "Figure" in metadata.columns:
             metadata["Figure"] = 0
@@ -149,7 +149,7 @@ class PlotCanvas:
             f = self.figs[int(row["Figure"])]
             axs = self.axes[int(row["Figure"])]
             ax=axs[int(row["Row"]), int(row["Column"])]
-            ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index: "+str(row_index), **dict)
+            ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index: "+str(row_index), **kwargs)
 
 
 def draw_data(data, metadata):

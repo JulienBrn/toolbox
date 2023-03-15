@@ -53,5 +53,5 @@ toolbox.add_draw_metadata(plots_db,
 
 plotcanvas = toolbox.prepare_figures(plots_db)
 
-plotcanvas.plot(plots_db, data)
+plotcanvas.plot(plots_db, data, linestyle='dashed', marker='o')
 plt.show()
