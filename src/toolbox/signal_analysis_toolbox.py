@@ -6,6 +6,6 @@ def remove_artefacts(signal, factor=2) -> None:
     abs(signal[i-1] * factor) < signal[i] and abs(signal[i+1] * factor) < signal[i]
     """
     for i in range(1, len(signal)-1):
-        if abs(signal[i-1] * 2) < abs(signal[i]) and abs(signal[i+1] * 2) < abs(signal[i]):
+        if abs(signal[i-1] * factor) < abs(signal[i]) and abs(signal[i+1] * factor) < abs(signal[i]):
             signal[i]=np.nan
             i=i-1
