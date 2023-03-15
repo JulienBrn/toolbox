@@ -1,1 +1,2 @@
-from toolbox.toolbox import read_folder_as_database, add_draw_metadata, draw_data, prepare_figures
+from toolbox.toolbox import read_folder_as_database
+from toolbox.draw_toolbox import add_draw_metadata, draw_data, prepare_figures
