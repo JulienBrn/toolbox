@@ -26,7 +26,7 @@ cache_folder= pathlib.Path(sys.argv[0]).parent / "cache"
 file_db = toolbox.read_folder_as_database(
     search_folder=analysis_files_folder, 
     pattern = "**/*.mat",
-    columns=["Date", "Structure", "Subject", "Condition", "Unit"])
+    columns=["Condition", "Subject", "Structure", "Date"])
 
 plots_db=file_db.merge(pd.DataFrame([["lfp"], ["mu"]], columns=["signal"]), how="cross")
 
@@ -45,7 +45,7 @@ data = {
 }
 
 toolbox.add_draw_metadata(plots_db, 
-                        # fig_group=[],
+                        fig_group=["Condition"],
                         row_group=["Condition", "signal"],
                         col_group=["Structure"],
                         # color_group=["Condition"],

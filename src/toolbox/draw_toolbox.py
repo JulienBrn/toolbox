@@ -18,30 +18,31 @@ def add_draw_metadata(
     fig_groups = metadata.groupby(by=fig_group).groups if fig_group != [] else {"":metadata.index}
     figs=[]
     for fi, (fn, fentries) in enumerate(fig_groups.items()):
-        # f = plt.Figure()
+        
         fmetadata = metadata.loc[fentries, :]
         row_groups = fmetadata.groupby(by=row_group).groups if row_group != [] else {"":metadata.index}
         col_groups = fmetadata.groupby(by=col_group).groups if col_group != [] else {"":metadata.index}
-        # ax = f.subplots(len(row_groups.groups), len(col_groups.groups))
+        
         for ri, (rn, rentries) in enumerate(row_groups.items()):
             for ci, (cn, centries) in enumerate(col_groups.items()):
-                sub_metadata = fmetadata.loc[rentries & centries, :]
+                sub_metadata = fmetadata.loc[(rentries.intersection(centries)), :]
                 color_groups = sub_metadata.groupby(by=color_group).groups if color_group != [] else {"":metadata.index}
                 nb_colors=len(color_groups)
                 colors=plt.cm.get_cmap()
                 for colori, (colorn, colorentries) in enumerate(color_groups.items()):
+                    select=fentries.intersection(rentries).intersection(centries).intersection(colorentries)
                     if fig_group != []:
-                        metadata.loc[fentries & rentries & centries & colorentries, "Figure"] = fi
-                        metadata.loc[fentries & rentries & centries & colorentries, "Figure_label"] = str(fn)
+                        metadata.loc[select, "Figure"] = fi
+                        metadata.loc[select, "Figure_label"] = str(fn)
                     if row_group != []:
-                        metadata.loc[fentries & rentries & centries & colorentries, "Row"] = ri
-                        metadata.loc[fentries & rentries & centries & colorentries, "Row_label"] = str(rn)
+                        metadata.loc[select, "Row"] = ri
+                        metadata.loc[select, "Row_label"] = str(rn)
                     if col_group !=[]:
-                        metadata.loc[fentries & rentries & centries & colorentries, "Column"] = ci
-                        metadata.loc[fentries & rentries & centries & colorentries, "Column_label"] = str(cn)
+                        metadata.loc[select, "Column"] = ci
+                        metadata.loc[select, "Column_label"] = str(cn)
                     if color_group!= []:
-                        metadata.loc[fentries & rentries & centries & colorentries, "Color"] = mpl.colors.rgb2hex(colors(float(colori)/nb_colors), keep_alpha=True)
-                        metadata.loc[fentries & rentries & centries & colorentries, "Color_label"] = str(colorn)
+                        metadata.loc[select, "Color"] = mpl.colors.rgb2hex(colors(float(colori)/nb_colors), keep_alpha=True)
+                        metadata.loc[select, "Color_label"] = str(colorn)
 
 
 def prepare_figures(metadata):
