@@ -13,7 +13,7 @@ import toolbox
 # import seaborn as sns
 
 logger=logging.getLogger(__name__)
-beautifullogger.setup(displayLevel=logging.INFO)
+beautifullogger.setup()
 matplotlib.use("tkagg")
 
 res_folder = pathlib.Path(sys.argv[0]).parent / "Results"
