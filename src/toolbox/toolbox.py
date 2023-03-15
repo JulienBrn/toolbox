@@ -73,7 +73,6 @@ def add_draw_metadata(
                 nb_colors=len(color_groups)
                 colors=plt.cm.get_cmap()
                 for colori, (colorn, colorentries) in enumerate(color_groups.items()):
-                    logger.error(str(float(colori)/nb_colors))
                     if fig_group != []:
                         metadata.loc[fentries & rentries & centries & colorentries, "Figure"] = fi
                         metadata.loc[fentries & rentries & centries & colorentries, "Figure_label"] = str(fn)
@@ -86,6 +85,71 @@ def add_draw_metadata(
                     if color_group!= []:
                         metadata.loc[fentries & rentries & centries & colorentries, "Color"] = mpl.colors.rgb2hex(colors(float(colori)/nb_colors), keep_alpha=True)
                         metadata.loc[fentries & rentries & centries & colorentries, "Color_label"] = str(colorn)
+
+
+def prepare_figures(metadata):
+    metadata=metadata.copy()
+    if not "Figure" in metadata.columns:
+        metadata["Figure"] = 0
+    if not "Row" in metadata.columns:
+        metadata["Row"] = 0
+    if not "Column" in metadata.columns:
+        metadata["Column"] = 0
+    if not "Color" in metadata.columns:
+        metadata["Color"] = "C0"
+    nb_figs = int(metadata["Figure"].max())+1 
+    figs = []
+    axes= []
+    for i in range(nb_figs):
+        f = plt.figure(layout="tight")
+        if "Figure_label" in metadata.columns:
+            f.suptitle("Figure {}, num_plots {}".format(
+                metadata.loc[metadata["Figure"] == i, "Figure_label"].iloc[0],
+                len(metadata.loc[metadata["Figure"] == i]))
+            )
+        nb_rows = int(metadata.loc[metadata["Figure"] == i, "Row"].max())+1
+        nb_cols = int(metadata.loc[metadata["Figure"] == i, "Column"].max())+1
+        ax=f.subplots(nb_rows, nb_cols, squeeze=False)
+        for ri in range(nb_rows):
+            for ci in range(nb_cols):
+                select = (metadata["Figure"] == i) & (metadata["Row"] == ri) & (metadata["Column"] == ci)
+                if "Color_label" in metadata.columns:
+                    colorl = metadata.loc[select, "Color_label"].unique().tolist()
+                    colorv = metadata.loc[select, "Color"].unique().tolist()
+                    handles=[plt.plot([], color=colorv, label=colorl)[0] for colorv, colorl in zip(colorv,colorl)]
+                    ax[ri, ci].legend(handles=handles)
+            add_headers(f, 
+                row_headers=metadata.loc[metadata["Figure"] == i, "Row_label"].unique() if "Row_label" in metadata.columns else None,
+                col_headers=metadata.loc[metadata["Figure"] == i, "Column_label"].unique() if "Column_label" in metadata.columns else None,
+            )
+
+        figs.append(f)
+        axes.append(ax)
+        return PlotCanvas(figs, axes)
+
+class PlotCanvas:
+    figs: List[plt.Figure]
+    axes: List[List[plt.Axes]]
+
+    def __init__(self, figs, axes):
+        self.figs = figs
+        self.axes = axes
+
+    def plot(self, metadata, data, dict={}):
+        metadata=metadata.copy()
+        if not "Figure" in metadata.columns:
+            metadata["Figure"] = 0
+        if not "Row" in metadata.columns:
+            metadata["Row"] = 0
+        if not "Column" in metadata.columns:
+            metadata["Column"] = 0
+        if not "Color" in metadata.columns:
+            metadata["Color"] = "C0"
+        for row_index,row in metadata.iterrows():
+            f = self.figs[int(row["Figure"])]
+            axs = self.axes[int(row["Figure"])]
+            ax=axs[int(row["Row"]), int(row["Column"])]
+            ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index: "+str(row_index), **dict)
 
 
 def draw_data(data, metadata):
@@ -131,7 +195,6 @@ def draw_data(data, metadata):
         ax=axs[int(row["Row"]), int(row["Column"])]
         # ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index"+str(row_index))
         ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"])
-    logger.error("Showing")
     plt.show()
 
 
