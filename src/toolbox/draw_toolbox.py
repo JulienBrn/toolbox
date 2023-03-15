@@ -15,6 +15,17 @@ def add_draw_metadata(
         col_group=[], 
         color_group=[]):
     
+    reserved_columns = [
+        "Figure", "Figure_label", 
+        "Row", "Row_label", 
+        "Column", "Column_label", 
+        "Color", "Color_label"
+    ]
+
+    if set(reserved_columns) & set(metadata.columns) != set():
+        logger.warning("Metadata already has columns reserved for drawing.\n"
+                       +"Used columns are: {}". format(set(reserved_columns) & set(metadata.columns)))
+
     fig_groups = metadata.groupby(by=fig_group).groups if fig_group != [] else {"":metadata.index}
     figs=[]
     for fi, (fn, fentries) in enumerate(fig_groups.items()):
@@ -111,6 +122,7 @@ class PlotCanvas:
 
 
 def draw_data(data, metadata):
+    logger.warning("This feature will be removed soon. Use prepare_figures and call .plot on result instead")
     metadata=metadata.copy()
     logger.info(str(metadata.columns))
     if not "Figure" in metadata.columns:
