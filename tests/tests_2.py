@@ -25,7 +25,7 @@ cache_folder= pathlib.Path(sys.argv[0]).parent / "cache"
 
 file_db = toolbox.read_folder_as_database(
     search_folder=analysis_files_folder,
-    pattern = "**/*.MP4",
+    pattern = ["**/*.mp4","**/*.MP4"],
     columns=["Type_manip", "Condition", "Sub_condition"])
 
 print(file_db)

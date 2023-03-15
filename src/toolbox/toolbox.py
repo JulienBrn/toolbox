@@ -2,7 +2,7 @@ import pathlib
 import pandas as pd
 import logging
 import numpy as np
-from typing import List
+from typing import List, Union
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
@@ -12,10 +12,15 @@ logger=logging.getLogger()
 def read_folder_as_database(
         search_folder: pathlib.Path,
         columns: List[str],
-        pattern: str,
+        pattern: Union[str, List[str]],
 ):
     logger.info("Read folder as database called")
-    raw_files = search_folder.glob(pattern)
+    if not isinstance(pattern, List):
+        pattern = [pattern]
+
+    raw_files=[]
+    for p in pattern:
+        raw_files += search_folder.glob(p)
     # logger.info("Found {} files".format(len(raw_files)))
     l=[]
     for file in raw_files:
