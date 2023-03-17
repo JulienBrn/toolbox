@@ -44,7 +44,7 @@ def add_draw_metadata(
                     select=fentries.intersection(rentries).intersection(centries).intersection(colorentries)
                     if fig_group != []:
                         metadata.loc[select, "Figure"] = fi
-                        metadata.loc[select, "Figure_label"] = str(fn)
+                        metadata.loc[select, "Figure_label"] = str(fn) if isinstance(fn, str) else "{}={}".format(fig_group, fn)
                     if row_group != []:
                         metadata.loc[select, "Row"] = ri
                         metadata.loc[select, "Row_label"] = str(rn)
@@ -56,7 +56,7 @@ def add_draw_metadata(
                         metadata.loc[select, "Color_label"] = str(colorn)
 
 
-def prepare_figures(metadata):
+def prepare_figures(metadata, **kwargs):
     metadata=metadata.copy()
     if not "Figure" in metadata.columns:
         metadata["Figure"] = 0
@@ -78,7 +78,7 @@ def prepare_figures(metadata):
             )
         nb_rows = int(metadata.loc[metadata["Figure"] == i, "Row"].max())+1
         nb_cols = int(metadata.loc[metadata["Figure"] == i, "Column"].max())+1
-        ax=f.subplots(nb_rows, nb_cols, squeeze=False)
+        ax=f.subplots(nb_rows, nb_cols, squeeze=False, subplot_kw=kwargs)
         for ri in range(nb_rows):
             for ci in range(nb_cols):
                 select = (metadata["Figure"] == i) & (metadata["Row"] == ri) & (metadata["Column"] == ci)
@@ -94,7 +94,7 @@ def prepare_figures(metadata):
 
         figs.append(f)
         axes.append(ax)
-        return PlotCanvas(figs, axes)
+    return PlotCanvas(figs, axes)
 
 class PlotCanvas:
     figs: List[plt.Figure]
@@ -119,6 +119,22 @@ class PlotCanvas:
             axs = self.axes[int(row["Figure"])]
             ax=axs[int(row["Row"]), int(row["Column"])]
             ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index: "+str(row_index), **kwargs)
+    
+    def pcolormesh(self, metadata, data, **kwargs):
+        metadata=metadata.copy()
+        if not "Figure" in metadata.columns:
+            metadata["Figure"] = 0
+        if not "Row" in metadata.columns:
+            metadata["Row"] = 0
+        if not "Column" in metadata.columns:
+            metadata["Column"] = 0
+        if not "Color" in metadata.columns:
+            metadata["Color"] = "C0"
+        for row_index,row in metadata.iterrows():
+            f = self.figs[int(row["Figure"])]
+            axs = self.axes[int(row["Figure"])]
+            ax=axs[int(row["Row"]), int(row["Column"])]
+            ax.pcolormesh(data[row["y_data_col"]], data[row["x_data_col"]], data[row["c_data_col"]], label="_index: "+str(row_index), **kwargs)
 
 
 def draw_data(data, metadata):

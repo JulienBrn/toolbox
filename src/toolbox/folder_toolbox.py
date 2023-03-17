@@ -2,7 +2,7 @@ import pathlib
 import pandas as pd
 import logging
 import numpy as np
-from typing import List, Union
+from typing import List, Union, Callable, Any
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
@@ -13,7 +13,7 @@ def read_folder_as_database(
         search_folder: pathlib.Path,
         columns: List[str],
         pattern: Union[str, List[str]],
-):
+) -> pd.DataFrame:
     logger.info("Read folder as database called")
     if not isinstance(pattern, List):
         pattern = [pattern]
@@ -33,3 +33,18 @@ def read_folder_as_database(
     database = pd.DataFrame(l,columns=["filename", "ext"]+ columns +["path"])
     return database
 
+class FileData:
+    load_func: Callable[[str], Any]
+
+    def __init__(path, select = None, reshape = None, nentries=None):
+        pass
+
+def load(path: pathlib.Path):
+    pass #todo
+
+def load_paths(f):
+    def new_f(*args, **kwargs):
+        nargs = [arg if not isinstance(arg, FileData) else load(arg) for arg in args]
+        nkwargs = {key:arg if not isinstance(arg, FileData) else load(arg) for key,arg in kwargs}
+        return f(*nargs, **kwargs)
+    return new_f
