@@ -104,7 +104,7 @@ class PlotCanvas:
         self.figs = figs
         self.axes = axes
 
-    def plot(self, metadata, data, **kwargs):
+    def plot(self, metadata, data, x="x_data_col", y= "y_data_col", **kwargs):
         metadata=metadata.copy()
         if not "Figure" in metadata.columns:
             metadata["Figure"] = 0
@@ -118,7 +118,7 @@ class PlotCanvas:
             f = self.figs[int(row["Figure"])]
             axs = self.axes[int(row["Figure"])]
             ax=axs[int(row["Row"]), int(row["Column"])]
-            ax.plot(data[row["x_data_col"]], data[row["y_data_col"]], color=row["Color"], label="_index: "+str(row_index), **kwargs)
+            ax.plot(data[row[x]], data[row[y]], color=row["Color"], label="_index: "+str(row_index), **kwargs)
     
     def pcolormesh(self, metadata, data, **kwargs):
         metadata=metadata.copy()
@@ -134,7 +134,7 @@ class PlotCanvas:
             f = self.figs[int(row["Figure"])]
             axs = self.axes[int(row["Figure"])]
             ax=axs[int(row["Row"]), int(row["Column"])]
-            ax.pcolormesh(data[row["y_data_col"]], data[row["x_data_col"]], data[row["c_data_col"]], label="_index: "+str(row_index), **kwargs)
+            ax.pcolormesh(data[row["x_data_col"]], data[row["y_data_col"]], data[row["c_data_col"]], label="_index: "+str(row_index), **kwargs)
 
 
 def draw_data(data, metadata):
