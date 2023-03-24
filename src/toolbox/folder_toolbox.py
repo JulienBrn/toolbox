@@ -103,18 +103,43 @@ def files_as_database(config):
 
     return results
 
-class FileData:
-    load_func: Callable[[str], Any]
+def database_select(db: pd.DataFrame, selector):
+  """Selector is a dictionary in the form (null entries may be omitted)
 
-    def __init__(path, select = None, reshape = None, nentries=None):
-        pass
+    filter: null | str  #string passed to pandas.query
+    sort_by: null | 
+      xxx: "asc" | "desc"
+      yyy: "asc" | "desc"
+    partition_by: null | ["subject", "structure"] 
+    select_range_per_partition: null | [start, end] #end is not included
+  """
+  # logger.info("called")
+  res = db.copy()
+  if "filter" in selector and selector["filter"]:
+    res.query(selector["filter"], inplace=True)
 
-def load(path: pathlib.Path):
-    pass #todo
+  if "sort_by" in selector and selector["sort_by"]:
+    cols = [col for col in selector["sort_by"].keys()]
+    order = [True if order=="asc" else False for order in selector["sort_by"].values()]
+    res.sort_values(by=cols, ascending=order, inplace=True)  
 
-def load_paths(f):
-    def new_f(*args, **kwargs):
-        nargs = [arg if not isinstance(arg, FileData) else load(arg) for arg in args]
-        nkwargs = {key:arg if not isinstance(arg, FileData) else load(arg) for key,arg in kwargs}
-        return f(*nargs, **kwargs)
-    return new_f
+  if "__group_rank" in res.columns:
+    logger.error("__group_rank is a reserved column for database_select. It will be rewritten.")
+
+  if "partition_by" in selector and selector["partition_by"]:
+    res["__group_rank"]=res.groupby(selector["partition_by"]).cumcount()
+  else:
+    res["__group_rank"]=0
+  
+  if "select_range_per_partition" in selector and selector["select_range_per_partition"]:
+    start = selector["select_range_per_partition"][0]
+    end = selector["select_range_per_partition"][1]
+    res=res[res["__group_rank"].between(start, end, inclusive="left")]
+  
+  res.drop(columns=["__group_rank"], inplace=True)
+  return res
+
+
+    
+  
+
