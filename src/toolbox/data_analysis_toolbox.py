@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.metrics.pairwise import nan_euclidean_distances
 
 
 def order_differences(mat, start = None):
@@ -11,7 +11,7 @@ def order_differences(mat, start = None):
        start = random.randint(0, mat.shape[0]) 
   
     mask=np.full((mat.shape[0]), False)
-    distances = euclidean_distances(mat,mat)
+    distances = nan_euclidean_distances(mat,mat)
     
     mask[start] = True
     res.append(start)
