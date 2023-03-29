@@ -16,6 +16,7 @@ def remove_artefacts(signal, factor=2) -> None:
             i=i-1
 
 def replace_artefacts_with_nans(sig, fs, deviation_factor=7, min_length=0.002, shoulder_width=0.2, join_width=0.5):
+    logger.warning("This version is deprecated. Please use its second version instead.")
     mean=sig.mean()
     threshold=sig.std()*deviation_factor
     filtered=np.where(abs(sig - mean) > threshold, np.nan, sig)
