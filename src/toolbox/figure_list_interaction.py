@@ -3,7 +3,7 @@ import matplotlib, matplotlib.pyplot as plt
 import re, logging
 
 logger = logging.getLogger(__name__)
-
+matplotlib.use('qtagg')
 
 class FigureList:
   i: int
