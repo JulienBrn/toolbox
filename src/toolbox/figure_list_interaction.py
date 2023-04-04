@@ -111,10 +111,11 @@ class FigureList:
     self.show_fig(generator())
 
   def go_to_figure(self, t):
-    matching = self.__rnum.fullmatch(t)
+    matching = self.rnum.fullmatch(t)
     if matching:
       inext = int(str(matching.group(1)))
-      self.show_fig(inext-1)
+      self.i = inext-1
+      self.next_figure(include_cur=True)
     else:
       self.textbox.set_val("{}/{}".format(self.i+1, self.max_len) if self.max_len else "#{}".format(self.i+1))
   

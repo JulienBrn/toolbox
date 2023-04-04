@@ -4,3 +4,4 @@ from toolbox.electrophysiology_toolbox import extract_lfp, extract_mu
 from toolbox.signal_analysis_toolbox import remove_artefacts, replace_artefacts_with_nans, affine_nan_replace, replace_artefacts_with_nans2
 from toolbox.data_analysis_toolbox import order_differences
 from toolbox.figure_list_interaction import make_figure_list_interaction, FigureList
+from toolbox.stuff import roundTime
