@@ -3,7 +3,7 @@ import beautifullogger
 
 beautifullogger.setup()
 
-m = Manager(".")
+m = Manager("./tests/cache")
 r = m.declare_ressource("tests/content.tsv", df_loader, "test_ressource")
 
 def multiply(df, i):
@@ -25,8 +25,8 @@ start_avgs = m.declare_computable_ressources(make_avg_dict, {"df":r},
 
 end_avgs = m.declare_computable_ressources(make_avg_dict, {"df":mult}, 
   {
-    "x": (float_loader, "x_avg", True),
-    "y": (float_loader, "y_avg", True),
+    "x": (float_loader, "x_avg_e", True),
+    "y": (float_loader, "y_avg_e", False),
   })
 
 print(mult.get_result())

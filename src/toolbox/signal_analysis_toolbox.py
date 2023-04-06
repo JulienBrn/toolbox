@@ -50,7 +50,6 @@ def replace_artefacts_with_nans(sig, fs, deviation_factor=7, min_length=0.002, s
 def get_bad_ranges(sig: np.array, deviation_factor):
     mean= np.nanmean(sig)
     std = np.nanstd(sig)
-    # logger.debug("mean={}, std={}".format(mean, std))
 
     mask = np.where(np.isnan(sig) | (abs(sig - mean) > deviation_factor*std), 1, 0)
     changes = mask[:-1] - mask[1:]
@@ -64,6 +63,38 @@ def get_bad_ranges(sig: np.array, deviation_factor):
 
     return start_indices, end_indices
 
+
+def compute_artefact_bounds(sig, fs, deviation_factor, min_length, join_width, recursive, shoulder_width):
+    tmp_sig = sig.copy().astype(float)
+    old_start_indices=np.array([])
+    old_end_indices=np.array([])
+    nb_rec=0
+    while True:
+      logger.debug("Going into recursion {}".format(nb_rec))
+      start_indices, end_indices = get_bad_ranges(tmp_sig, deviation_factor)
+      df = pd.DataFrame()
+      df["start"] = start_indices
+      df["end"] = end_indices
+      df["Kept"] = df["end"] - df["start"] >=  min_length*fs
+      df.loc[df["Kept"], "Merged_before"] = df.loc[df["Kept"], "start"] - df.loc[df["Kept"], "end"].shift(1) < join_width*fs
+      df.loc[df["Kept"], "Merged_after"] = df.loc[df["Kept"], "start"].shift(-1) - df.loc[df["Kept"], "end"] < join_width*fs
+      start_indices = df.loc[df["Kept"] & (df["Merged_before"] == False), "start"].to_numpy(copy=True)
+      end_indices = df.loc[df["Kept"] & (df["Merged_after"] == False), "end"].to_numpy(copy=True)
+      # logger.debug("Df\n{}".format(df.to_string()))
+      logger.debug("Start end list\n{}".format("\n".join([str(t) for t in zip(start_indices, end_indices)])))
+      if not recursive:
+          break
+      if np.array_equal(start_indices, old_start_indices) and np.array_equal(end_indices, old_end_indices):
+          break
+      nb_rec+=1
+      old_start_indices = start_indices
+      old_end_indices = end_indices
+      for s,e in zip(start_indices, end_indices):
+        tmp_sig[int(max(0,int(s))):int(min(len(sig), int(e)))] = np.nan
+    
+    start_indices -= int(shoulder_width*fs)
+    end_indices += int(shoulder_width*fs)
+    return [[max(0, s), min(e, len(sig))] for s, e in zip(start_indices, end_indices)]
 
 def replace_artefacts_with_nans2(sig, fs, deviation_factor, min_length, join_width, recursive, shoulder_width):
     tmp_sig = sig.copy().astype(float)

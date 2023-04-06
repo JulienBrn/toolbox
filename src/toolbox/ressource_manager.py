@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import sys
 import toolbox
+import scipy
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,19 @@ def mk_float_loader():
 
   return RessourceLoader(".txt", load, save)
 
+def mk_matlab_loader():
+  def load(path):
+    return scipy.io.loadmat(path)
+  
+  def save(path, d: Dict[str:Any]):
+    scipy.io.savemat(path, d)
+
+  return RessourceLoader(".mat", load, save)
+
 df_loader = mk_df_loader()
 np_loader = mk_numpy_loader()
 float_loader = mk_float_loader()
+matlab_loader = mk_matlab_loader()
 
 class Manager:
   IdType = str
@@ -75,7 +86,7 @@ class Manager:
   
 
 
-  def declare_ressource(self, path, loader, name="ValueRessource") -> RessourceHandle:
+  def declare_ressource(self, path, loader, name="ValueRessource", id: str | None = None) -> RessourceHandle:
     """ 
       Path must exist !
       Path must be compatible with extension
@@ -83,7 +94,8 @@ class Manager:
       May be loaded when necessary in memory
     """ 
     path = pathlib.Path(path)
-    id = str(path)
+    if id is None:
+      id = str(path)
     if not path.exists():
       raise ValueError("file {} must exist to declare a ressource from that location".format(path))
     if path.suffix != loader.extension:
@@ -100,6 +112,7 @@ class Manager:
       May or may not be saved on disk (after computation), depends on save
     """
     def single_key_func(*args, **kwargs):
+      logger.debug("Single key for ressource {} called with {} {}".format(name, args, kwargs.keys()))
       return {0 : function(*args, **kwargs)}
     return self.declare_computable_ressources(single_key_func, params, {0: (loader, name, save)})[name]
 
@@ -149,6 +162,7 @@ class Manager:
       raise BaseException("Ressource is not saved but cannot be either computed...")
     else:
       real_params = {key:val if not isinstance(val, RessourceHandle) else val.get_result() for key, val in ressource.computer.params.items()}
+      logger.info("Ressource {} is being computed".format(ressource.get_disk_path()))
       res = ressource.computer.func(**real_params)
       for key, (loader, childid, save) in ressource.computer.out.items():
         rec = self.d[childid]
@@ -182,6 +196,11 @@ class Manager:
   
   def is_saved_on_disk(self, id) -> bool:
     return "Disk" in self.d[self.id].storage_locations
+  
+  def unload(self, id):
+    ressource = self.d[id]
+    if "Disk" in ressource.storage_locations or not ressource.computer is None:
+      ressource.remove_from_memory()
 
   ######## internals ################
   d: Dict[IdType, Ressource] = {}
@@ -208,31 +227,31 @@ class Manager:
       if "Disk" in self.storage_locations:
         logger.error("Ressource {} is on Disk. Locations: {}".format(self.handle.name, self.storage_locations))
       path = self.get_disk_path()
-      logger.debug("Path is {}".format(path))
+      # logger.debug("Path is {}".format(path))
       if path.exists():
         self.storage_locations.append("Disk")
-        logger.debug("Path {} exists".format(path))
-      else:
-        logger.debug("Path {} does not exist".format(path))
-      if "Disk" in self.storage_locations:
-        logger.debug("Ressource {} is on Disk".format(self.handle.name))
+        # logger.debug("Path {} exists".format(path))
+      # else:
+      #   logger.debug("Path {} does not exist".format(path))
+      # if "Disk" in self.storage_locations:
+      #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
 
 
     def get_disk_path(self) -> pathlib.Path:
       if hasattr(self, "disk_path"):
         return self.disk_path
-      if "Disk" in self.storage_locations:
-        logger.debug("Ressource {} is on Disk".format(self.handle.name))
+      # if "Disk" in self.storage_locations:
+      #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       if self.computer is None:
         self.disk_path = self.base_storage
       else:
         (loader, id, save) = self.computer.out[self.computer_key]
         ext = loader.extension
         def compute_param_str(ressource):
-          logger.debug("Ressource is {}".format(ressource.handle.name))
+          # logger.debug("Ressource is {}".format(ressource.handle.name))
           name = ressource.handle.name
           if ressource.computer is None:
-            return name
+            return ressource.handle.id
           static_params = {key:p for key, p in ressource.computer.params.items() if not isinstance(p, RessourceHandle)}
           ressourceParams = {key:p for key, p in ressource.computer.params.items() if isinstance(p, RessourceHandle)}
           return "{}_{}/{}".format(
@@ -240,8 +259,8 @@ class Manager:
             toolbox.clean_filename(str(static_params)), 
             "/".join([compute_param_str(ressource.handle.manager.d[p.id]) for p in ressourceParams.values()]))
         self.disk_path = self.base_storage / pathlib.Path("{}{}".format(compute_param_str(self), ext))
-      if "Disk" in self.storage_locations:
-        logger.debug("Ressource {} is on Disk".format(self.handle.name))
+      # if "Disk" in self.storage_locations:
+      #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       return self.disk_path
 
 
@@ -249,30 +268,39 @@ class Manager:
       if "Disk" in self.storage_locations:
         logger.debug("Unnecessary Memory to disk called")
         return 
+      logger.info("Ressource {} is being saved on disk".format(self.get_disk_path()))
       if not "Memory" in self.storage_locations:
         raise BaseException("Bug in Ressource Manager. Ressource should have been loaded.")
       if self.value is None:
         logger.warning("Value is supposed to be loaded but has Value None. Strange...")
       self.get_disk_path().parent.mkdir(parents=True, exist_ok=True)
-      logger.debug("Folder {} created".format(self.get_disk_path().parent))
+      # logger.debug("Folder {} created".format(self.get_disk_path().parent))
       self.loader.save(self.get_disk_path(), self.value)
-      logger.info("Writing to disk")
+      # logger.info("Writing to disk")
       self.storage_locations.append("Disk")
-      if "Disk" in self.storage_locations:
-        logger.debug("Ressource {} is on Disk".format(self.handle.name))
+      # if "Disk" in self.storage_locations:
+      #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
 
     def disk_to_memory(self):
       if "Memory" in self.storage_locations:
         logger.debug("Unnecessary disk to memory called")
         return 
+      logger.info("Ressource {} is being loaded into memory".format(self.get_disk_path()))
       if not "Disk" in self.storage_locations:
         raise BaseException("Bug in Ressource Manager. Ressource should be on disk but is not.")
       if not self.get_disk_path().exists():
         raise BaseException("Bug in Ressource Manager. Incoherent location state.")
       self.value = self.loader.load(self.get_disk_path())
       self.storage_locations.append("Memory")
-      if "Disk" in self.storage_locations:
-        logger.debug("Ressource {} is on Disk".format(self.handle.name))
+      # if "Disk" in self.storage_locations:
+      #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
+
+
+    def remove_from_memory(self):
+      if "Memory" in self.storage_locations:
+        logger.info("Ressource {} is being removed from memory".format(self.get_disk_path()))
+        self.value = None
+        self.storage_locations.remove("Memory")
 
   class Computer:
     func: Callable
@@ -313,5 +341,7 @@ class RessourceHandle:
   def save(self): 
     self.manager.save_on_disk(self.id)
 
+  def unload(self):
+    self.manager.unload(self.id)
 
 

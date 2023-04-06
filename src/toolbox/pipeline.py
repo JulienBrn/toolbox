@@ -16,12 +16,13 @@ def mk_block(
   manager: Manager
 ):
   def compute_elem(row):
+    nonlocal params
     params = {key:val for key, val in row.items() if key in params}
-    if isinstance(out, dict):
+    if not type(out) is tuple:
       ressource_dict = manager.declare_computable_ressources(func, params, out)
     else:
       ressource = manager.declare_computable_ressource(func, params, *out)
       ressource_dict = {out[1]: ressource}
-    return row.append(pd.Series(ressource_dict))
+    return pd.concat([row,pd.Series(ressource_dict)])
    
   return df.apply(compute_elem, axis=1)
