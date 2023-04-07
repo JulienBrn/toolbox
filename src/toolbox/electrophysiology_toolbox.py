@@ -48,7 +48,7 @@ def extract_mu(
 
     filtera_mu, filterb_mu = butter(order, filter_refreq, fs=fs, btype='low', analog=False)
     mu = lfilter(filtera_mu, filterb_mu, mu_abs)
-
+    
     if(fs > out_fs):
         return mu[::int(fs/out_fs)], fs/int(fs/out_fs)
     else:
