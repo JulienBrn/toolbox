@@ -2,24 +2,65 @@ from toolbox import Manager, np_loader, df_loader, float_loader, matlab_loader, 
 import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy
 from tqdm import tqdm
 
-beautifullogger.setup(displayLevel=logging.WARNING)
+beautifullogger.setup()
+logger=logging.getLogger(__name__)
+logging.getLogger("toolbox.ressource_manager").setLevel(logging.WARNING)
+logging.getLogger("toolbox.signal_analysis_toolbox").setLevel(logging.WARNING)
+
 tqdm.pandas(desc="computing apply")
 m = Manager("./tests/cache")
 
-cols = ["Condition", "Subject", "Structure", "Date"]
-df_handle = m.declare_computable_ressource(
+cols = ["Species", "Condition", "Subject", "Structure", "Date", "Electrode", "raw_fs"]
+
+
+monkey_df_handle = m.declare_computable_ressource(
     read_folder_as_database, {
       "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/MarcAnalysis/Inputs/MonkeyData4Review"),
-      "columns":cols,
+      "columns": ["Condition", "Subject", "Structure", "Date"],
        "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
 
-df = df_handle.get_result()
-df["Species"] = "Monkey"
-print(df.columns)
-df["sample_id"] = df.apply(lambda row: "_".join(row[cols].to_list()+[row["filename"]]), axis=1)
+monkey_df = monkey_df_handle.get_result()
+monkey_df["Species"] = "Monkey"
+monkey_df["Electrode"] = monkey_df["filename"]
+monkey_df["raw_fs"] = 25000
+print("Monkey df loaded")
+
+human_df_handle = m.declare_computable_ressource(
+    read_folder_as_database, {
+      "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/HumanData4review"),
+      "columns":["Structure", "Date", "Electrode"],
+       "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+
+human_df = human_df_handle.get_result()
+human_df["Species"] = "Human"
+human_df["Date"] = human_df["Date"].str.slice(0, 10)
+human_df["Subject"] = human_df["Date"]
+human_df["Condition"] = "healthy"
+human_df["raw_fs"] = human_df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
+
+print("Human df loaded")
+print(human_df)
+
+df = pd.concat([monkey_df, human_df], ignore_index=True)
+
+
+
+# print(df.columns)
+df["sample_id"] = df.apply(lambda row: "_".join([str(val) for val in row[cols]]), axis=1)
+
+logger.info("Input dataframe ready with shape {}, declaring ressources...".format(df.shape))
 df["input"] = df.apply(lambda row: m.declare_ressource(row["path"], matlab_loader, "raw", id=row["sample_id"]), axis=1)
-df = mk_block(df, ["input"], lambda input: input["RAW"][0,], (np_loader, "raw", False), m)
-df["raw_fs"] = 25000
+logger.info("Matlab ressources declared")
+
+def get_raw_signal(input):
+   return input["RAW"][0,]
+
+df = mk_block(df, ["input"], get_raw_signal , (np_loader, "raw", False), m)
+
+
+
+
+
 df["deviation_factor"] = 5
 df["min_length"] = 0.003
 df["join_width"] = 3
