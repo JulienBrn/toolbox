@@ -8,6 +8,7 @@ import numpy as np
 import sys
 import toolbox
 import scipy
+import mat73
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,20 @@ def mk_matlab_loader():
 
   return RessourceLoader(".mat", load, save)
 
+def mk_matlab73_loader():
+  def load(path):
+    return mat73.loadmat(path)
+  
+  def save(path, d: Dict[str:Any]):
+    scipy.io.savemat(path, d)
+
+  return RessourceLoader(".mat", load, save)
+
 df_loader = mk_df_loader()
 np_loader = mk_numpy_loader()
 float_loader = mk_float_loader()
 matlab_loader = mk_matlab_loader()
+matlab73_loader = mk_matlab73_loader()
 
 class Manager:
   IdType = str
@@ -189,7 +200,7 @@ class Manager:
     
 
   def is_stored(self, id) -> bool:
-    return self.d[self.id].storage_locations != []
+    return self.d[id].storage_locations != []
 
   def is_in_memory(self, id) -> bool: 
     return "Memory" in self.d[id].storage_locations
@@ -343,5 +354,19 @@ class RessourceHandle:
 
   def unload(self):
     self.manager.unload(self.id)
+
+  def __str__(self):
+    if self.is_in_memory():
+      res = self.get_result()
+      if hasattr(res, "shape"):
+          return "Rec(shape{})".format(res.shape)
+      elif hasattr(res, "__len__"):
+         return "Rec({}_of_{}_elements)".format(type(res), len(res))
+      else:
+          return "Rec({})".format(str(res)[0:30])
+    elif self.is_stored():
+      return "StoredRec({})".format(self.manager.d[self.id].storage_locations)
+    else:
+      return "UncomputedRec"
 
 

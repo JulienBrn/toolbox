@@ -24,8 +24,10 @@ def mk_block(
       ressource = manager.declare_computable_ressource(func, params, *out)
       ressource_dict = {out[1]: ressource}
     return pd.concat([row,pd.Series(ressource_dict)])
-   
-  return df.apply(compute_elem, axis=1)
+  if hasattr(df, "progress_apply"):
+    return df.progress_apply(compute_elem, axis=1)
+  else:
+    return df.apply(compute_elem, axis=1)
 
 def get_columns(df, columns):
   if isinstance(columns, str):
@@ -33,14 +35,18 @@ def get_columns(df, columns):
   def compute_and_clean_row(row):
       dres={}
       for col in columns:
-        res = row[col].get_result()
+        if isinstance(row[col], RessourceHandle):
+          res = row[col].get_result()
+        else:
+          res = row[col]
         if hasattr(res, "shape"):
           dres[col] = "Shape{}".format(res.shape)
         elif hasattr(res, "__len__"):
           dres[col] = "{}_of_{}_elements".format(type(res), len(res))
         else:
             dres[col] = res
-        row[col].save()
+        if isinstance(row[col], RessourceHandle):
+          row[col].save()
       for col in row.index:
           if isinstance(row[col], RessourceHandle):
             row[col].unload()
