@@ -1,16 +1,25 @@
 import pandas as pd, numpy as np
 from typing import Dict
 
-def group_and_combine(df: pd.DataFrame, group_cols):
-  groups = df.groupby(group_cols)
+def group_and_combine(df: pd.DataFrame, group_cols, include_eq = False):
+  df = df.copy()
+  df["__group_num"] = df.groupby(by=group_cols).ngroup()
+  groups = df.groupby(by=group_cols+["__group_num"])
   def cross_merge(df: pd.DataFrame):
     df["__num_in_grp"] = np.arange(df.shape[0])
     df.drop(columns=group_cols, inplace=True)
     r = pd.merge(df, df, how="cross", suffixes=["_1", "_2"])
-    r = r.loc[r["__num_in_grp_1"] <  r["__num_in_grp_2"], :]
+    if include_eq:
+       r = r.loc[r["__num_in_grp_1"] <=  r["__num_in_grp_2"], :]
+    else:
+      r = r.loc[r["__num_in_grp_1"] <  r["__num_in_grp_2"], :]
     return r
-  ret = groups.apply(cross_merge)
+  if hasattr(groups, "progress_apply"):
+    ret: pd.DataFrame = groups.progress_apply(cross_merge)
+  else: 
+    ret: pd.DataFrame = groups.apply(cross_merge)
   ret = ret.reset_index()
+  ret.drop(columns=["level_{}".format(len(group_cols)+1)], inplace=True)
   return ret
 
 

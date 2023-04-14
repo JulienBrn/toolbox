@@ -1,20 +1,26 @@
 from toolbox import Manager, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, read_folder_as_database, mk_block, replace_artefacts_with_nans2
-import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy, h5py, re, ast
+import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy, h5py, re, ast, sys
 from tqdm import tqdm
 
-import cProfile
-import pstats
-from pstats import SortKey
 
 beautifullogger.setup(logmode="w")
 logger=logging.getLogger(__name__)
 logging.getLogger("toolbox.ressource_manager").setLevel(logging.WARNING)
 logging.getLogger("toolbox.signal_analysis_toolbox").setLevel(logging.WARNING)
 
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        logger.info("Keyboard interupt")
+        return
+    else:
+       sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+sys.excepthook = handle_exception
+
 computation_m = Manager("./tests/cache/computation")
 folder_manager = Manager("./tests/cache/folder_contents")
 dataframe_manager = Manager("./tests/cache/dataframes")
-
 
 
 ####INPUT Dataframe#######
@@ -110,6 +116,7 @@ def mk_rat_input() -> pd.DataFrame :
       ]
    rat_spikes_regexs = [
          re.compile("(?P<sln>.*)_Pr(?P<channel>[0-9]+)_(?P<neuron>.*)"),
+         re.compile("(?P<sln>.*)_Probe(?P<channel>[0-9]+)(?P<neuron>.*)"),
          re.compile("(?P<sln>.*)_mPr(?P<channel>[0-9]+)_(?P<neuron>.*)"), #make better
          re.compile("(?P<sln>.*)_P(?P<channel>[0-9]+)_(?P<neuron>.*)"),  #make better
          re.compile("(?P<sln>.*)_Pr_(?P<channel>[0-9]+)_(?P<neuron>.*)"),
@@ -199,21 +206,12 @@ def get_file_ressource(d):
       ret =  computation_m.declare_ressource(d["file_path"].iat[0], matlab73_loader, check=False)
    return d.apply(lambda row: ret, axis=1)
 
-# cProfile.run('input_df.groupby("file_path", group_keys=False).progress_apply(get_file_ressource)', "restats")
-# p = pstats.Stats('restats')
-# perf = pd.DataFrame(
-#     p.getstats(),
-#     columns=['func', 'ncalls', 'ccalls', 'tottime', 'cumtime', 'callers']
-# )
-# p.sort_stats(SortKey.CUMULATIVE).print_stats(30)
-# 
 
 # with toolbox.Profile() as pr:
 input_df["file_ressource"] = input_df.groupby("file_path", group_keys=False).progress_apply(get_file_ressource)
 
 # perf = pr.get_results()
-# perf["filename:lineno(function)"] = perf["filename:lineno(function)"].str.replace("/home/julien/miniconda3/envs/dev/lib/python3", "python", regex=False)
-# perf = perf[perf["cumtime"] > 1]
+#  perf = perf[perf["cumtime"] > 1]
 
 # print(perf.sort_values(by=["cumtime"], ascending=False, ignore_index=True).to_string())
 
@@ -372,6 +370,11 @@ signal_append["signal_type"] = "spike_continuous"
 signal_append["signal_fs"] = spike_df["out_fs"]
 signal_df = pd.concat([signal_df, signal_append], ignore_index=True).sort_values(by=signal_cols[0:-2], ignore_index=True)
 
+######### Signal Manipulation finished #############
+
+logger.info("Signal dataframe has {} entries. A snapshot is:\n{}".format(len(signal_df.index),signal_df.iloc[0:10,:].to_string()))
+df_loader.save("signal_df.tsv", signal_df)
+
 
 
 ######### PWELCH_ANALYSIS ###########################
@@ -380,57 +383,57 @@ tqdm.pandas(desc="Declaring pwelch results")
 
 pwelch_df = signal_df[signal_df["signal_type"].isin(["lfp_cleaned", "bua_cleaned"])].copy()
 
+
+
+
 pwelch_params ={
-   "welch_window_duration":3
+   "window_duration":3
 }
+
 for key,val in pwelch_params.items():
    pwelch_df[key] = val
 
-def pwelch(signal, signal_fs, welch_window_duration):
-   return scipy.signal.welch(signal, signal_fs, nperseg=welch_window_duration*signal_fs)
+def pwelch(signal, signal_fs, window_duration):
+   return scipy.signal.welch(signal, signal_fs, nperseg=window_duration*signal_fs)
 
-pwelch_df = mk_block(pwelch_df, ["signal", "signal_fs", "welch_window_duration"], pwelch, 
+pwelch_df = mk_block(pwelch_df, ["signal", "signal_fs", "window_duration"], pwelch, 
                      {0: (np_loader, "welch_f", True), 1: (np_loader, "welch_pow", True)}, computation_m)
 
+logger.info("Pwelch dataframe has {} entries. A snapshot is:\n{}".format(len(pwelch_df.index),pwelch_df.iloc[0:10,:].to_string()))
+df_loader.save("pwelch_df.tsv", pwelch_df)
 
 ######### COHERENCE ANALYSIS #####################
 
+tqdm.pandas(desc="Computing pairs for coherence_df")
 
+coherence_df = toolbox.group_and_combine(signal_df[signal_df["signal_type"].isin(["lfp_cleaned", "bua_cleaned", "spike_continuous"])], ["Condition", "Subject", "Species", "Session", "Date", "SubSessionInfo", "SubSessionInfoType"])
 
+coherence_params ={
+   "window_duration":3,
+   "version":1
+}
 
-beautifullogger.setDisplayLevel(logging.INFO)
-logger.debug("Signal dataframe is:\n{}".format(signal_df.to_string()))
-logger.info("Signal dataframe has {} entries. A snapshot is:\n{}".format(len(signal_df.index),signal_df.iloc[0:10,:].to_string()))
-beautifullogger.setDisplayLevel(logging.DEBUG)
+for key,val in coherence_params.items():
+   coherence_df[key] = val
 
-tqdm.pandas(desc="Computing results")
-print(toolbox.get_columns(signal_df, ["signal"]))
+def compute_coherence(version, signal_1, signal_fs_1, signal_2, signal_fs_2, window_duration):
+   if signal_fs_1 != signal_fs_2:
+      # logger.warning("The two signals do not have the same fs")
+      return {"frequencies":np.nan, "pow": np.nan, "phase": np.nan}
+   else:
+      f11, csd11=scipy.signal.csd(signal_1, signal_1, signal_fs_1, nperseg=window_duration*signal_fs_1)
+      f22, csd22=scipy.signal.csd(signal_2, signal_2, signal_fs_2, nperseg=window_duration*signal_fs_2)
+      f12, csd12=scipy.signal.csd(signal_1, signal_2, signal_fs_1, nperseg=window_duration*signal_fs_1)
+      coherence_pow = abs(csd12)**2/(csd22*csd11)
+      coherence_phase = np.angle(csd12, deg=True)
+      return {"frequencies": f11, "pow": coherence_pow, "phase": coherence_phase}
 
-raise BaseException("stop")
+tqdm.pandas(desc="Declaring ressources for coherence_df") 
+coherence_df = mk_block(coherence_df, ["version", "signal_1", "signal_fs_1", "signal_2", "signal_fs_2", "window_duration"], compute_coherence, 
+                     {"frequencies": (np_loader, "coherence_f", True), "pow": (np_loader, "coherence_pow", True), "phase": (np_loader, "coherence_phase", True)}, computation_m)
 
-
-
-
-
-
-
-
-
-
-
-RAW_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "raw", "raw_fs"] + ["Clean_bounds"] + ["Clean_sig"] + ["lfp", "lfp_fs", "mu", "mu_fs"]
-SPIKES_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "Neuron", "times", "times_fs"] + ["signal"]
-Signal_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "signal_type", "Neuron", "signal", "signal_fs"] #Neuron is None with signal_type != spike
-PWELCH_Columns = Signal_Columns + ["pwelch_f", "pwelch_pow"] #(possibly filtered to not do on spikes) 
-Coherence_Columns = ["Species", "Condition", "Subject", "Session",
-                          "channel_1", "signal_type_1", "Neuron_1", "signal_1", "signal_fs_1",
-                          "channel_2", "signal_type_2", "Neuron_2", "signal_2", "signal_fs_2"
-                     ] + ["coherence_f", "coherence_pow, coherence_phase"]
-
-Correlation_Columns = ["Species", "Condition", "Subject", "Session",
-                          "channel_1", "Neuron_1", "signal_1", "signal_fs_1",
-                          "channel_2", "Neuron_2", "signal_2", "signal_fs_2"
-                      ] + ["coherence_f", "coherence_pow, coherence_phase"] #signal_type is "spike"
+logger.info("Coherence dataframe has {} entries. A snapshot is:\n{}".format(len(coherence_df.index),coherence_df.iloc[0:10,:]))
+df_loader.save("coherence_df.tsv", coherence_df)
 
 
 
@@ -438,413 +441,455 @@ Correlation_Columns = ["Species", "Condition", "Subject", "Session",
 
 
 
-def mk_monkey_metadata():
-   df_handle = folder_manager.declare_computable_ressource(
-      read_folder_as_database, {
-         "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/MarcAnalysis/Inputs/MonkeyData4Review"),
-         "columns": ["Condition", "Subject", "Structure", "Date"],
-         "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
-   df: pd.DataFrame = df_handle.get_result().iloc[0:5, :].copy()
-   df["Species"] = "Monkey"
-   df["Session"] = df["Date"] + df["filename"]
-   df["Channel"] = df["filename"]
-   tqdm.pandas(desc="Declaring Monkey ressources")
-   df["input"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab_loader, "raw", id=row["path"]), axis=1)
-   return df
+########### RESULT COMPUTATION ###################
 
-def mk_human_metadata():
-   df_handle = folder_manager.declare_computable_ressource(
-      read_folder_as_database, {
-         "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/HumanData4review"),
-         "columns":["Structure", "Date_HT", "Electrode_Depth"],
-         "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+# tqdm.pandas(desc="Computing signals")
+# print(toolbox.get_columns(signal_df, ["signal"]))
 
-   df = df_handle.get_result().iloc[0:5, :].copy()
-   df["Species"] = "Human"
-   df["Condition"] = "pd"
-   df["Session"] = df["Date_HT"]+df["Electrode_Depth"] 
-   df["Date"] = df["Date_HT"].str.slice(0, 10)
-   df["Subject"] = df.groupby("Date").ngroup()
-   df["Channel"] = df["filename"] 
-   tqdm.pandas(desc="Declaring Human ressources")
-   df["input"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab_loader, "raw", id=row["path"]), axis=1)
-   return df
+tqdm.pandas(desc="Computing pwelch", colour="red")
+print(toolbox.get_columns(pwelch_df, ["welch_f", "welch_pow"]))
+tqdm.pandas(desc="Computing coherence", colour="red")
+print(toolbox.get_columns(coherence_df, ["coherence_f", "coherence_pow"]))
 
-def mk_rat_metadata():
-   df_handle = folder_manager.declare_computable_ressource(
-      read_folder_as_database, {
-         "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/NicoAnalysis/Rat_Data"),
-         "columns":["Condition", "Subject", "Date", "Session", "Structure"],
-         "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+# raise BaseException("stop")
 
-   rat_regexs = [
-         re.compile("(?P<sln>.*)_Probe(?P<channel>.*)"),
-         re.compile("(?P<sln>.*)_(?P<channel>EEG)ipsi", re.IGNORECASE),
-         re.compile("(?P<sln>.*)_ipsi(?P<channel>EEG)", re.IGNORECASE)
-      ]
-   def get_rats_dataframe(prev_dataframe: pd.DataFrame):
-      def get_dataframe(row):
-         with h5py.File(row["path"], 'r') as file:
-            key_regex=[next((v for v in [regex.fullmatch(key) for regex in rat_regexs] if v), None) for key in file.keys()]
-            fs = [int(1/file[key]["interval"][0,0]) if "interval" in file[key] else np.nan for key in file.keys()]
-            key_list = [[r.group(), r.group("channel"),r.group("sln")] if r else ["", ""] for r in key_regex ]
+
+
+
+
+
+
+
+
+
+
+# RAW_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "raw", "raw_fs"] + ["Clean_bounds"] + ["Clean_sig"] + ["lfp", "lfp_fs", "mu", "mu_fs"]
+# SPIKES_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "Neuron", "times", "times_fs"] + ["signal"]
+# Signal_Columns = ["Species", "Condition", "Subject", "Structure", "Session", "Channel", "signal_type", "Neuron", "signal", "signal_fs"] #Neuron is None with signal_type != spike
+# PWELCH_Columns = Signal_Columns + ["pwelch_f", "pwelch_pow"] #(possibly filtered to not do on spikes) 
+# Coherence_Columns = ["Species", "Condition", "Subject", "Session",
+#                           "channel_1", "signal_type_1", "Neuron_1", "signal_1", "signal_fs_1",
+#                           "channel_2", "signal_type_2", "Neuron_2", "signal_2", "signal_fs_2"
+#                      ] + ["coherence_f", "coherence_pow, coherence_phase"]
+
+# Correlation_Columns = ["Species", "Condition", "Subject", "Session",
+#                           "channel_1", "Neuron_1", "signal_1", "signal_fs_1",
+#                           "channel_2", "Neuron_2", "signal_2", "signal_fs_2"
+#                       ] + ["coherence_f", "coherence_pow, coherence_phase"] #signal_type is "spike"
+
+
+
+
+
+
+
+# def mk_monkey_metadata():
+#    df_handle = folder_manager.declare_computable_ressource(
+#       read_folder_as_database, {
+#          "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/MarcAnalysis/Inputs/MonkeyData4Review"),
+#          "columns": ["Condition", "Subject", "Structure", "Date"],
+#          "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+#    df: pd.DataFrame = df_handle.get_result().iloc[0:5, :].copy()
+#    df["Species"] = "Monkey"
+#    df["Session"] = df["Date"] + df["filename"]
+#    df["Channel"] = df["filename"]
+#    tqdm.pandas(desc="Declaring Monkey ressources")
+#    df["input"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab_loader, "raw", id=row["path"]), axis=1)
+#    return df
+
+# def mk_human_metadata():
+#    df_handle = folder_manager.declare_computable_ressource(
+#       read_folder_as_database, {
+#          "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/HumanData4review"),
+#          "columns":["Structure", "Date_HT", "Electrode_Depth"],
+#          "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+
+#    df = df_handle.get_result().iloc[0:5, :].copy()
+#    df["Species"] = "Human"
+#    df["Condition"] = "pd"
+#    df["Session"] = df["Date_HT"]+df["Electrode_Depth"] 
+#    df["Date"] = df["Date_HT"].str.slice(0, 10)
+#    df["Subject"] = df.groupby("Date").ngroup()
+#    df["Channel"] = df["filename"] 
+#    tqdm.pandas(desc="Declaring Human ressources")
+#    df["input"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab_loader, "raw", id=row["path"]), axis=1)
+#    return df
+
+# def mk_rat_metadata():
+#    df_handle = folder_manager.declare_computable_ressource(
+#       read_folder_as_database, {
+#          "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/NicoAnalysis/Rat_Data"),
+#          "columns":["Condition", "Subject", "Date", "Session", "Structure"],
+#          "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+
+#    rat_regexs = [
+#          re.compile("(?P<sln>.*)_Probe(?P<channel>.*)"),
+#          re.compile("(?P<sln>.*)_(?P<channel>EEG)ipsi", re.IGNORECASE),
+#          re.compile("(?P<sln>.*)_ipsi(?P<channel>EEG)", re.IGNORECASE)
+#       ]
+#    def get_rats_dataframe(prev_dataframe: pd.DataFrame):
+#       def get_dataframe(row):
+#          with h5py.File(row["path"], 'r') as file:
+#             key_regex=[next((v for v in [regex.fullmatch(key) for regex in rat_regexs] if v), None) for key in file.keys()]
+#             fs = [int(1/file[key]["interval"][0,0]) if "interval" in file[key] else np.nan for key in file.keys()]
+#             key_list = [[r.group(), r.group("channel"),r.group("sln")] if r else ["", ""] for r in key_regex ]
             
-            metadata = [l1+ [f] for l1, f in zip(key_list, fs)]
-            strange ={key:dict(file[key]) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan =="" or sln=="" or fs==np.nan}
-            good = {key:(mname, chan, sln, fs) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan and sln and fs}
-            if strange != []:
-               for key, detail in strange.items():
-                  logger.warning("Input {} has strange matlab structure {}. Details:\n{}".format(row["path"], key, detail))
-            r = pd.DataFrame(good.values(), columns=["matlab_id", "Channel", "Subject_long_name", "raw_fs"])
-            for k in row.index:
-               r[k] = row[k] 
-            r["Species"] = "Rat"
-            r["Session"] = r["Date"].astype(str) + r["Session"]
-            return r
-      return pd.concat(prev_dataframe[prev_dataframe["filename"]!="Units"].apply(get_dataframe, axis=1).values, ignore_index=True)
+#             metadata = [l1+ [f] for l1, f in zip(key_list, fs)]
+#             strange ={key:dict(file[key]) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan =="" or sln=="" or fs==np.nan}
+#             good = {key:(mname, chan, sln, fs) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan and sln and fs}
+#             if strange != []:
+#                for key, detail in strange.items():
+#                   logger.warning("Input {} has strange matlab structure {}. Details:\n{}".format(row["path"], key, detail))
+#             r = pd.DataFrame(good.values(), columns=["matlab_id", "Channel", "Subject_long_name", "raw_fs"])
+#             for k in row.index:
+#                r[k] = row[k] 
+#             r["Species"] = "Rat"
+#             r["Session"] = r["Date"].astype(str) + r["Session"]
+#             return r
+#       return pd.concat(prev_dataframe[prev_dataframe["filename"]!="Units"].apply(get_dataframe, axis=1).values, ignore_index=True)
 
-   df = get_rats_dataframe(df_handle.get_result().iloc[0:5, :].copy())
-   tqdm.pandas(desc="Declaring Rat RAW ressources")
-   df["input_raw"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab73_loader, "raw", id=row["path"]), axis=1)
-   tqdm.pandas(desc="Declaring Rat Units ressources")
-   df["input_units"] = df.progress_apply(
-      lambda row: computation_m.declare_ressource(str(pathlib.Path(row["path"]).parent / "Units.mat"), matlab73_loader, "units") 
-         if  (pathlib.Path(row["path"]).parent / "Units.mat").exists() else None, 
-      axis=1)
-   return df
+#    df = get_rats_dataframe(df_handle.get_result().iloc[0:5, :].copy())
+#    tqdm.pandas(desc="Declaring Rat RAW ressources")
+#    df["input_raw"] = df.progress_apply(lambda row: computation_m.declare_ressource(row["path"], matlab73_loader, "raw", id=row["path"]), axis=1)
+#    tqdm.pandas(desc="Declaring Rat Units ressources")
+#    df["input_units"] = df.progress_apply(
+#       lambda row: computation_m.declare_ressource(str(pathlib.Path(row["path"]).parent / "Units.mat"), matlab73_loader, "units") 
+#          if  (pathlib.Path(row["path"]).parent / "Units.mat").exists() else None, 
+#       axis=1)
+#    return df
 
-def mk_raw_df():
-   def mk_monkey_raw_df():
-      df = mk_monkey_metadata()
-      df["raw_fs"] = 25000
-      df = mk_block(df, ["input"], lambda input: input["RAW"][0,] , (np_loader, "raw", False), computation_m)
-      df.drop(columns=["Date", "path", "input", "filename", "ext"], inplace=True)
-      return df
+# def mk_raw_df():
+#    def mk_monkey_raw_df():
+#       df = mk_monkey_metadata()
+#       df["raw_fs"] = 25000
+#       df = mk_block(df, ["input"], lambda input: input["RAW"][0,] , (np_loader, "raw", False), computation_m)
+#       df.drop(columns=["Date", "path", "input", "filename", "ext"], inplace=True)
+#       return df
 
-   def mk_human_raw_df():
-      df = mk_human_metadata()
-      df["raw_fs"] = df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
-      df = mk_block(df, ["input"], lambda input: input["MUA"][0,] , (np_loader, "raw", False), computation_m)
-      df.drop(columns=["Date_HT", "Electrode_Depth", "path", "input", "Date", "filename", "ext"], inplace=True)
-      return df
+#    def mk_human_raw_df():
+#       df = mk_human_metadata()
+#       df["raw_fs"] = df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
+#       df = mk_block(df, ["input"], lambda input: input["MUA"][0,] , (np_loader, "raw", False), computation_m)
+#       df.drop(columns=["Date_HT", "Electrode_Depth", "path", "input", "Date", "filename", "ext"], inplace=True)
+#       return df
 
-   def mk_rat_raw_df():
-      df = mk_rat_metadata()
-      def get_raw(input_raw, matlab_id):
-         return input_raw[matlab_id]["values"]
-      df = mk_block(df, ["input_raw", "matlab_id"], get_raw , (np_loader, "raw", False), computation_m)
-      df.drop(columns=["path", "input_raw", "input_units", "Date", "matlab_id", "Subject_long_name", "filename", "ext"], inplace=True)
-      return df
+#    def mk_rat_raw_df():
+#       df = mk_rat_metadata()
+#       def get_raw(input_raw, matlab_id):
+#          return input_raw[matlab_id]["values"]
+#       df = mk_block(df, ["input_raw", "matlab_id"], get_raw , (np_loader, "raw", False), computation_m)
+#       df.drop(columns=["path", "input_raw", "input_units", "Date", "matlab_id", "Subject_long_name", "filename", "ext"], inplace=True)
+#       return df
 
-   monkey_raw_df = mk_monkey_raw_df()
-   human_raw_df = mk_human_raw_df()
-   rat_raw_df = mk_rat_raw_df()
+#    monkey_raw_df = mk_monkey_raw_df()
+#    human_raw_df = mk_human_raw_df()
+#    rat_raw_df = mk_rat_raw_df()
 
-   raw_df = pd.concat([monkey_raw_df, human_raw_df, rat_raw_df], ignore_index=True)
+#    raw_df = pd.concat([monkey_raw_df, human_raw_df, rat_raw_df], ignore_index=True)
 
-   raw_df["sample_id"] = raw_df.apply(lambda row: "_".join([str(val) for val in row[["Species", "Condition", "Subject", "Structure", "Session", "Channel"]]]), axis=1)
-   if not raw_df["sample_id"].is_unique:
-      logger.error("Indices in RAW dataframe are not unique... Examples:\n{}".format(raw_df[raw_df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
-      raise BaseException("Non unicity")
-   else:
-      raw_df.drop(columns=["sample_id"], inplace=True)
-      logger.info("RAW df Metadata ok")
-   return raw_df
+#    raw_df["sample_id"] = raw_df.apply(lambda row: "_".join([str(val) for val in row[["Species", "Condition", "Subject", "Structure", "Session", "Channel"]]]), axis=1)
+#    if not raw_df["sample_id"].is_unique:
+#       logger.error("Indices in RAW dataframe are not unique... Examples:\n{}".format(raw_df[raw_df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
+#       raise BaseException("Non unicity")
+#    else:
+#       raw_df.drop(columns=["sample_id"], inplace=True)
+#       logger.info("RAW df Metadata ok")
+#    return raw_df
 
-raw_df = mk_raw_df()
-raw_df.apply(lambda row: row["raw"].get_result(), axis=1)
-# raw_df.apply(lambda row: row["raw_fs"].get_result(), axis=1)
-logger.info("raw_df is\n{}".format(raw_df))
+# raw_df = mk_raw_df()
+# raw_df.apply(lambda row: row["raw"].get_result(), axis=1)
+# # raw_df.apply(lambda row: row["raw_fs"].get_result(), axis=1)
+# logger.info("raw_df is\n{}".format(raw_df))
 
-########Let us make Spikes_df##############
-
-
-def mk_spikes_df():
-   def mk_monkey_spikes_df():
-      df = mk_monkey_metadata()
-      df["Neuron"] = 1
-      df["spike_fs"] = 25000
-      df = mk_block(df, ["input"], lambda input: input["SUA"][0,] , (np_loader, "spike_times", False), computation_m)
-      df.drop(columns=["Date", "path", "input", "filename", "ext"], inplace=True)
-      return df
-
-   def mk_human_spikes_df():
-      df = mk_human_metadata()
-      df["spike_fs"] = df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
-      df["Neuron"] = 1
-      df = mk_block(df, ["input"], lambda input: input["SUA"][0,] , (np_loader, "spike_times", False), computation_m)
-      df.drop(columns=["Date_HT", "Electrode_Depth", "path", "input", "Date", "filename", "ext"], inplace=True)
-      return df
-
-   def mk_rat_spikes_df():
-      df = mk_rat_metadata()
-      df["spike_fs"] = df["raw_fs"]
-      df["Neuron"] = 1
-      def get_spikes(input_units, matlab_id):
-         if input_units:
-            logger.info("Input units:\n{}".format(dict(input_units)))
-            return input_units[matlab_id]["times"]
-         return np.nan
-      df = mk_block(df, ["input_units", "matlab_id"], get_spikes , (np_loader, "spike_times", False), computation_m)
-      df.drop(columns=["path", "input_raw", "input_units", "Date", "matlab_id", "Subject_long_name", "filename", "ext", "raw_fs"], inplace=True)
-      return df
-   monkey_spikes_df = mk_monkey_spikes_df()
-   human_spikes_df = mk_human_spikes_df()
-   rat_spikes_df = mk_rat_spikes_df()
-
-   spikes_df = pd.concat([monkey_spikes_df, human_spikes_df, rat_spikes_df], ignore_index=True)
-
-   spikes_df["sample_id"] = spikes_df.apply(lambda row: "_".join([str(val) for val in row[["Species", "Condition", "Subject", "Structure", "Session", "Channel", "Neuron"]]]), axis=1)
-   if not spikes_df["sample_id"].is_unique:
-      logger.error("Indices in SPIKES dataframe are not unique... Examples:\n{}".format(spikes_df[spikes_df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
-      raise BaseException("Non unicity")
-   else:
-      spikes_df.drop(columns=["sample_id"], inplace=True)
-      logger.info("RAW df Metadata ok")
-   return spikes_df
-
-spikes_df = mk_spikes_df()
-spikes_df.apply(lambda row: row["spike_times"].get_result(), axis=1)
-# spikes_df.apply(lambda row: row["spike_fs"].get_result(), axis=1)
-logger.info("spikes_df is\n{}".format(spikes_df))
-
-raise BaseException("stop")
-########Let us make signal_df##############
+# ########Let us make Spikes_df##############
 
 
+# def mk_spikes_df():
+#    def mk_monkey_spikes_df():
+#       df = mk_monkey_metadata()
+#       df["Neuron"] = 1
+#       df["spike_fs"] = 25000
+#       df = mk_block(df, ["input"], lambda input: input["SUA"][0,] , (np_loader, "spike_times", False), computation_m)
+#       df.drop(columns=["Date", "path", "input", "filename", "ext"], inplace=True)
+#       return df
+
+#    def mk_human_spikes_df():
+#       df = mk_human_metadata()
+#       df["spike_fs"] = df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
+#       df["Neuron"] = 1
+#       df = mk_block(df, ["input"], lambda input: input["SUA"][0,] , (np_loader, "spike_times", False), computation_m)
+#       df.drop(columns=["Date_HT", "Electrode_Depth", "path", "input", "Date", "filename", "ext"], inplace=True)
+#       return df
+
+#    def mk_rat_spikes_df():
+#       df = mk_rat_metadata()
+#       df["spike_fs"] = df["raw_fs"]
+#       df["Neuron"] = 1
+#       def get_spikes(input_units, matlab_id):
+#          if input_units:
+#             logger.info("Input units:\n{}".format(dict(input_units)))
+#             return input_units[matlab_id]["times"]
+#          return np.nan
+#       df = mk_block(df, ["input_units", "matlab_id"], get_spikes , (np_loader, "spike_times", False), computation_m)
+#       df.drop(columns=["path", "input_raw", "input_units", "Date", "matlab_id", "Subject_long_name", "filename", "ext", "raw_fs"], inplace=True)
+#       return df
+#    monkey_spikes_df = mk_monkey_spikes_df()
+#    human_spikes_df = mk_human_spikes_df()
+#    rat_spikes_df = mk_rat_spikes_df()
+
+#    spikes_df = pd.concat([monkey_spikes_df, human_spikes_df, rat_spikes_df], ignore_index=True)
+
+#    spikes_df["sample_id"] = spikes_df.apply(lambda row: "_".join([str(val) for val in row[["Species", "Condition", "Subject", "Structure", "Session", "Channel", "Neuron"]]]), axis=1)
+#    if not spikes_df["sample_id"].is_unique:
+#       logger.error("Indices in SPIKES dataframe are not unique... Examples:\n{}".format(spikes_df[spikes_df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
+#       raise BaseException("Non unicity")
+#    else:
+#       spikes_df.drop(columns=["sample_id"], inplace=True)
+#       logger.info("RAW df Metadata ok")
+#    return spikes_df
+
+# spikes_df = mk_spikes_df()
+# spikes_df.apply(lambda row: row["spike_times"].get_result(), axis=1)
+# # spikes_df.apply(lambda row: row["spike_fs"].get_result(), axis=1)
+# logger.info("spikes_df is\n{}".format(spikes_df))
+
+# raise BaseException("stop")
+# ########Let us make signal_df##############
 
 
 
-cols = ["Species", "Condition", "Subject", "Structure", "raw_fs", "Date", "Session", "Channel"]
 
 
-monkey_df_handle = m.declare_computable_ressource(
-    read_folder_as_database, {
-      "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/MarcAnalysis/Inputs/MonkeyData4Review"),
-      "columns": ["Condition", "Subject", "Structure", "Date"],
-       "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
-
-monkey_df = monkey_df_handle.get_result()
-
-monkey_df["Species"] = "Monkey"
-# monkey_df["Electrode"] = monkey_df["filename"]
-monkey_df["raw_fs"] = 25000
-monkey_df["Session"] = monkey_df["Date"] + monkey_df["filename"]
-monkey_df["Channel"] = monkey_df["filename"]
-# monkey_df["Neuron"] = "1"
-
-if set(cols) <= set(monkey_df.columns):
-   print("Monkey df loaded")
-   print(monkey_df)
-else:
-   raise BaseException("Not all key have been provided for monkey_df")
+# cols = ["Species", "Condition", "Subject", "Structure", "raw_fs", "Date", "Session", "Channel"]
 
 
-human_df_handle = m.declare_computable_ressource(
-    read_folder_as_database, {
-      "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/HumanData4review"),
-      "columns":["Structure", "Date_HT", "Electrode_Depth"],
-       "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+# monkey_df_handle = m.declare_computable_ressource(
+#     read_folder_as_database, {
+#       "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/MarcAnalysis/Inputs/MonkeyData4Review"),
+#       "columns": ["Condition", "Subject", "Structure", "Date"],
+#        "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
 
-human_df = human_df_handle.get_result()
-human_df["Species"] = "Human"
-human_df["Condition"] = "pd"
+# monkey_df = monkey_df_handle.get_result()
 
-# human_df["Site"] = human_df["Date_HT"]+human_df["Electrode_Depth"] 
-human_df["Session"] = human_df["Date_HT"]+human_df["Electrode_Depth"] 
-# human_df["Electrode"] = human_df.apply(lambda row: row["Electrode"] + row["Date"][10:], axis=1)
-human_df["Date"] = human_df["Date_HT"].str.slice(0, 10)
-human_df["Subject"] = human_df["Date"]
-human_df["raw_fs"] = human_df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
-human_df["Channel"] = human_df["filename"] 
+# monkey_df["Species"] = "Monkey"
+# # monkey_df["Electrode"] = monkey_df["filename"]
+# monkey_df["raw_fs"] = 25000
+# monkey_df["Session"] = monkey_df["Date"] + monkey_df["filename"]
+# monkey_df["Channel"] = monkey_df["filename"]
+# # monkey_df["Neuron"] = "1"
 
-if set(cols) <= set(human_df.columns):
-   print("Human df loaded")
-   print(human_df)
-else:
-   raise BaseException("Not all key have been provided for human_df")
+# if set(cols) <= set(monkey_df.columns):
+#    print("Monkey df loaded")
+#    print(monkey_df)
+# else:
+#    raise BaseException("Not all key have been provided for monkey_df")
 
-print("Loading rat_df")
 
-rat_df_tmp_handle = m.declare_computable_ressource(
-    read_folder_as_database, {
-      "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/NicoAnalysis/Rat_Data"),
-      "columns":["Condition", "Subject", "Date", "Session", "Structure"],
-       "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+# human_df_handle = m.declare_computable_ressource(
+#     read_folder_as_database, {
+#       "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/HumanData4review"),
+#       "columns":["Structure", "Date_HT", "Electrode_Depth"],
+#        "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
 
-import re
-rat_regexs = [
-      re.compile("(?P<sln>.*)_Probe(?P<channel>.*)"),
-      re.compile("(?P<sln>.*)_(?P<channel>EEG)ipsi", re.IGNORECASE),
-      re.compile("(?P<sln>.*)_ipsi(?P<channel>EEG)", re.IGNORECASE)
-   ]
-def get_rats_dataframe(prev_dataframe: pd.DataFrame):
+# human_df = human_df_handle.get_result()
+# human_df["Species"] = "Human"
+# human_df["Condition"] = "pd"
+
+# # human_df["Site"] = human_df["Date_HT"]+human_df["Electrode_Depth"] 
+# human_df["Session"] = human_df["Date_HT"]+human_df["Electrode_Depth"] 
+# # human_df["Electrode"] = human_df.apply(lambda row: row["Electrode"] + row["Date"][10:], axis=1)
+# human_df["Date"] = human_df["Date_HT"].str.slice(0, 10)
+# human_df["Subject"] = human_df["Date"]
+# human_df["raw_fs"] = human_df.apply(lambda row: 48000 if row["Date"] < "2015_01_01" else 44000, axis=1)
+# human_df["Channel"] = human_df["filename"] 
+
+# if set(cols) <= set(human_df.columns):
+#    print("Human df loaded")
+#    print(human_df)
+# else:
+#    raise BaseException("Not all key have been provided for human_df")
+
+# print("Loading rat_df")
+
+# rat_df_tmp_handle = m.declare_computable_ressource(
+#     read_folder_as_database, {
+#       "search_folder": pathlib.Path("/run/user/1000/gvfs/smb-share:server=filer2-imn,share=t4/Julien/NicoAnalysis/Rat_Data"),
+#       "columns":["Condition", "Subject", "Date", "Session", "Structure"],
+#        "pattern": "**/*.mat"}, df_loader, "input_file_df", save=True)
+
+# import re
+# rat_regexs = [
+#       re.compile("(?P<sln>.*)_Probe(?P<channel>.*)"),
+#       re.compile("(?P<sln>.*)_(?P<channel>EEG)ipsi", re.IGNORECASE),
+#       re.compile("(?P<sln>.*)_ipsi(?P<channel>EEG)", re.IGNORECASE)
+#    ]
+# def get_rats_dataframe(prev_dataframe: pd.DataFrame):
    
-   def get_dataframe(row):
-      with h5py.File(row["path"], 'r') as file:
-         key_regex=[next((v for v in [regex.fullmatch(key) for regex in rat_regexs] if v), None) for key in file.keys()]
-         fs = [int(1/file[key]["interval"][0,0]) if "interval" in file[key] else np.nan for key in file.keys()]
-         key_list = [[r.group(), r.group("channel"),r.group("sln")] if r else ["", ""] for r in key_regex ]
+#    def get_dataframe(row):
+#       with h5py.File(row["path"], 'r') as file:
+#          key_regex=[next((v for v in [regex.fullmatch(key) for regex in rat_regexs] if v), None) for key in file.keys()]
+#          fs = [int(1/file[key]["interval"][0,0]) if "interval" in file[key] else np.nan for key in file.keys()]
+#          key_list = [[r.group(), r.group("channel"),r.group("sln")] if r else ["", ""] for r in key_regex ]
          
-         metadata = [l1+ [f] for l1, f in zip(key_list, fs)]
-         strange ={key:dict(file[key]) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan =="" or sln=="" or fs==np.nan}
-         good = {key:(mname, chan, sln, fs) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan and sln and fs}
-         if strange != []:
-            for key, detail in strange.items():
-               logger.warning("Input {} has strange matlab structure {}. Details:\n{}".format(row["path"], key, detail))
-         r = pd.DataFrame(good.values(), columns=["Matlab_id", "Channel", "Subject_long_name", "raw_fs"])
-         for k in row.index:
-            r[k] = row[k] 
-         r["Species"] = "Rat"
-         return r
-   return pd.concat(prev_dataframe[prev_dataframe["filename"]!="Units"].apply(get_dataframe, axis=1).values, ignore_index=True)
+#          metadata = [l1+ [f] for l1, f in zip(key_list, fs)]
+#          strange ={key:dict(file[key]) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan =="" or sln=="" or fs==np.nan}
+#          good = {key:(mname, chan, sln, fs) for key, (mname, chan, sln, fs) in zip(file.keys(), metadata) if chan and sln and fs}
+#          if strange != []:
+#             for key, detail in strange.items():
+#                logger.warning("Input {} has strange matlab structure {}. Details:\n{}".format(row["path"], key, detail))
+#          r = pd.DataFrame(good.values(), columns=["Matlab_id", "Channel", "Subject_long_name", "raw_fs"])
+#          for k in row.index:
+#             r[k] = row[k] 
+#          r["Species"] = "Rat"
+#          return r
+#    return pd.concat(prev_dataframe[prev_dataframe["filename"]!="Units"].apply(get_dataframe, axis=1).values, ignore_index=True)
 
-rat_df = get_rats_dataframe(rat_df_tmp_handle.get_result())
+# rat_df = get_rats_dataframe(rat_df_tmp_handle.get_result())
 
-if set(cols) <= set(rat_df.columns):
-   print("Rat df loaded")
-   print(rat_df[[col for col in rat_df.columns if col != "path"]].to_string())
-else:
-   print(rat_df[[col for col in rat_df.columns if col != "path"]].to_string())
-   raise BaseException("Not all key have been provided for rat_df. Missing keys are {}".format(set(cols) - set(rat_df.columns)))
-
-
-df = pd.concat([monkey_df, human_df, rat_df], ignore_index=True)
+# if set(cols) <= set(rat_df.columns):
+#    print("Rat df loaded")
+#    print(rat_df[[col for col in rat_df.columns if col != "path"]].to_string())
+# else:
+#    print(rat_df[[col for col in rat_df.columns if col != "path"]].to_string())
+#    raise BaseException("Not all key have been provided for rat_df. Missing keys are {}".format(set(cols) - set(rat_df.columns)))
 
 
+# df = pd.concat([monkey_df, human_df, rat_df], ignore_index=True)
 
 
-#Selection
-df = df[df["Species"] == "Rat"]
 
 
-# print(df.columns)
-df["sample_id"] = df.apply(lambda row: "_".join([str(val) for val in row[cols]]), axis=1)
+# #Selection
+# df = df[df["Species"] == "Rat"]
 
-if not df["sample_id"].is_unique:
-   logger.error("Indices in dataframe are not unique... Examples:\n{}".format(df[df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
-   raise BaseException("Non unicity")
-else:
-   logger.info("Metadata ok")
 
-logger.info("Input dataframe ready with shape {}, declaring ressources...".format(df.shape))
-tqdm.pandas(desc="Declaring ressources")
-df.loc[df["Species"] != "Rat", "input"] = df[df["Species"] != "Rat"].progress_apply(lambda row: m.declare_ressource(row["path"], matlab_loader, "raw", id=row["sample_id"]), axis=1)
-df.loc[df["Species"] == "Rat", "input"] = df[df["Species"] == "Rat"].progress_apply(lambda row: m.declare_ressource(row["path"], matlab73_loader, "raw", id=row["sample_id"]), axis=1)
-logger.info("Matlab ressources declared")
+# # print(df.columns)
+# df["sample_id"] = df.apply(lambda row: "_".join([str(val) for val in row[cols]]), axis=1)
 
-def get_raw_signal(input, sample_id, Species, Matlab_id):
-   if Species =="Monkey":
-      if "RAW" in input:
-         return input["RAW"][0,]
-   if Species =="Human":
-      if "MUA" in input:
-         return input["MUA"][0,]
-   if Species =="Rat":
-      # print(input[Matlab_id]["values"].shape)
-      return input[Matlab_id]["values"]
-   logger.error("From file with id: {}. Impossible to retrieve data".format(sample_id, input))
-   raise BaseException("From file with id: {}. Impossible to retrieve data".format(sample_id))
+# if not df["sample_id"].is_unique:
+#    logger.error("Indices in dataframe are not unique... Examples:\n{}".format(df[df["sample_id"].duplicated(keep=False)].sort_values(by=["sample_id"])))
+#    raise BaseException("Non unicity")
+# else:
+#    logger.info("Metadata ok")
+
+# logger.info("Input dataframe ready with shape {}, declaring ressources...".format(df.shape))
+# tqdm.pandas(desc="Declaring ressources")
+# df.loc[df["Species"] != "Rat", "input"] = df[df["Species"] != "Rat"].progress_apply(lambda row: m.declare_ressource(row["path"], matlab_loader, "raw", id=row["sample_id"]), axis=1)
+# df.loc[df["Species"] == "Rat", "input"] = df[df["Species"] == "Rat"].progress_apply(lambda row: m.declare_ressource(row["path"], matlab73_loader, "raw", id=row["sample_id"]), axis=1)
+# logger.info("Matlab ressources declared")
+
+# def get_raw_signal(input, sample_id, Species, Matlab_id):
+#    if Species =="Monkey":
+#       if "RAW" in input:
+#          return input["RAW"][0,]
+#    if Species =="Human":
+#       if "MUA" in input:
+#          return input["MUA"][0,]
+#    if Species =="Rat":
+#       # print(input[Matlab_id]["values"].shape)
+#       return input[Matlab_id]["values"]
+#    logger.error("From file with id: {}. Impossible to retrieve data".format(sample_id, input))
+#    raise BaseException("From file with id: {}. Impossible to retrieve data".format(sample_id))
   
 
-df = mk_block(df, ["input", "sample_id", "Species", "Matlab_id"], get_raw_signal , (np_loader, "raw", False), m)
+# df = mk_block(df, ["input", "sample_id", "Species", "Matlab_id"], get_raw_signal , (np_loader, "raw", False), m)
 
 
 
 
 
-df["deviation_factor"] = 5
-df["min_length"] = 0.003
-df["join_width"] = 3
-df["shoulder_width"] = 1
-df["recursive"] = True
-df["replace_type"] = "affine"
-df["clean_version"] = 3
+# df["deviation_factor"] = 5
+# df["min_length"] = 0.003
+# df["join_width"] = 3
+# df["shoulder_width"] = 1
+# df["recursive"] = True
+# df["replace_type"] = "affine"
+# df["clean_version"] = 3
 
-df["lfp_filter_freq"] = 200
-df["lfp_out_fs"] = 500
-df["lfp_order"] = 3
+# df["lfp_filter_freq"] = 200
+# df["lfp_out_fs"] = 500
+# df["lfp_order"] = 3
 
-df["mu_filter_low_freq"] = 300
-df["mu_filter_high_freq"] = 6000
-df["mu_filter_refreq"] = 1000
-df["mu_out_fs"] = 2000
-df["mu_order"] = 3
+# df["mu_filter_low_freq"] = 300
+# df["mu_filter_high_freq"] = 6000
+# df["mu_filter_refreq"] = 1000
+# df["mu_out_fs"] = 2000
+# df["mu_order"] = 3
 
-df["spike_alg"] = "given"
+# df["spike_alg"] = "given"
 
-def clean(clean_version, raw, raw_fs, deviation_factor, min_length, join_width, recursive, shoulder_width):
-    bounds = toolbox.compute_artefact_bounds(raw, raw_fs, deviation_factor, min_length, join_width, recursive, shoulder_width)
-    return pd.DataFrame(bounds, columns=["start", "end"])
-
-
-df = mk_block(df, ["raw", "raw_fs", "deviation_factor", "min_length", "join_width", "recursive", "shoulder_width", "clean_version"], clean,
-                             (df_loader, "clean_bounds", True), m)
+# def clean(clean_version, raw, raw_fs, deviation_factor, min_length, join_width, recursive, shoulder_width):
+#     bounds = toolbox.compute_artefact_bounds(raw, raw_fs, deviation_factor, min_length, join_width, recursive, shoulder_width)
+#     return pd.DataFrame(bounds, columns=["start", "end"])
 
 
-
-
-def generate_clean(raw, clean_bounds, replace_type):
-  filtered= raw.copy().astype(float)
-  for _,artefact in clean_bounds.iterrows():
-    s = artefact["start"]
-    e = artefact["end"]
-    filtered[s:e] = np.nan
-  if replace_type == "affine":
-     return toolbox.affine_nan_replace(filtered)
-  elif replace_type == "nan":
-    return filtered
-  else:
-     raise BaseException("Invalid replace type")
-df = mk_block(df, ["raw", "clean_bounds", "replace_type"], generate_clean, (np_loader, "cleaned_raw", False), m)                             
-
-def extract_lfp(cleaned_raw, raw_fs, lfp_filter_freq, lfp_out_fs, lfp_order):
-   lfp, out_fs = toolbox.extract_lfp(cleaned_raw, raw_fs, lfp_filter_freq, lfp_out_fs, lfp_order)
-   return (lfp, out_fs)
-
-df = mk_block(df, ["cleaned_raw", "raw_fs", "lfp_filter_freq","lfp_out_fs", "lfp_order"], extract_lfp, 
-             {0: (np_loader, "lfp_sig", True), 1: (float_loader, "lfp_fs", True)}, m) 
-
-def extract_mu(cleaned_raw, raw_fs, mu_filter_low_freq, mu_filter_high_freq, mu_filter_refreq, mu_out_fs, mu_order):
-   mu, out_fs = toolbox.extract_mu(cleaned_raw, raw_fs, mu_filter_low_freq, mu_filter_high_freq, mu_filter_refreq, mu_out_fs, mu_order)
-   return (mu, out_fs)
-
-df = mk_block(df, ["cleaned_raw", "raw_fs", "mu_filter_low_freq", "mu_filter_high_freq","mu_filter_refreq", "mu_out_fs", "mu_order"], extract_mu, 
-             {0: (np_loader, "mu_sig", True), 1: (float_loader, "mu_fs", True)}, m) 
-
-def extract_spike(input, spike_alg):
-   if spike_alg == "given":
-      return input["SUA"][0,]
-   else:
-     raise BaseException("Invalid spike algorithm")
-
-df = mk_block(df, ["input", "spike_alg"], extract_spike, (np_loader, "spike_sig", True), m) 
+# df = mk_block(df, ["raw", "raw_fs", "deviation_factor", "min_length", "join_width", "recursive", "shoulder_width", "clean_version"], clean,
+#                              (df_loader, "clean_bounds", True), m)
 
 
 
 
-signal_reshape = pd.DataFrame({
-  "signal": {"lfp": "lfp_sig", "mu": "mu_sig", "spike": "spike_sig"},  
-  "signal_fs": {"lfp": "lfp_fs", "mu": "mu_fs", "spike": "raw_fs"},  
-})
+# def generate_clean(raw, clean_bounds, replace_type):
+#   filtered= raw.copy().astype(float)
+#   for _,artefact in clean_bounds.iterrows():
+#     s = artefact["start"]
+#     e = artefact["end"]
+#     filtered[s:e] = np.nan
+#   if replace_type == "affine":
+#      return toolbox.affine_nan_replace(filtered)
+#   elif replace_type == "nan":
+#     return filtered
+#   else:
+#      raise BaseException("Invalid replace type")
+# df = mk_block(df, ["raw", "clean_bounds", "replace_type"], generate_clean, (np_loader, "cleaned_raw", False), m)                             
 
-df_signal = toolbox.dataframe_reshape(df, "signal_type", signal_reshape)
-df_signal = df_signal[~ ((df_signal["Species"] == "Human") &  (df_signal["signal_type"] == "lfp"))]
+# def extract_lfp(cleaned_raw, raw_fs, lfp_filter_freq, lfp_out_fs, lfp_order):
+#    lfp, out_fs = toolbox.extract_lfp(cleaned_raw, raw_fs, lfp_filter_freq, lfp_out_fs, lfp_order)
+#    return (lfp, out_fs)
 
-df_welch = df_signal.loc[df_signal["signal_type"]!="spike"].copy()
+# df = mk_block(df, ["cleaned_raw", "raw_fs", "lfp_filter_freq","lfp_out_fs", "lfp_order"], extract_lfp, 
+#              {0: (np_loader, "lfp_sig", True), 1: (float_loader, "lfp_fs", True)}, m) 
 
-df_welch["welch_window_duration"] = 3
+# def extract_mu(cleaned_raw, raw_fs, mu_filter_low_freq, mu_filter_high_freq, mu_filter_refreq, mu_out_fs, mu_order):
+#    mu, out_fs = toolbox.extract_mu(cleaned_raw, raw_fs, mu_filter_low_freq, mu_filter_high_freq, mu_filter_refreq, mu_out_fs, mu_order)
+#    return (mu, out_fs)
 
-def pwelch(signal, signal_fs, welch_window_duration):
-   return scipy.signal.welch(signal, signal_fs, nperseg=welch_window_duration*signal_fs)
+# df = mk_block(df, ["cleaned_raw", "raw_fs", "mu_filter_low_freq", "mu_filter_high_freq","mu_filter_refreq", "mu_out_fs", "mu_order"], extract_mu, 
+#              {0: (np_loader, "mu_sig", True), 1: (float_loader, "mu_fs", True)}, m) 
 
-df_welch = mk_block(df_welch, ["signal", "signal_fs", "welch_window_duration"], pwelch, 
-                     {0: (np_loader, "welch_f", True), 1: (np_loader, "welch_pow", True)}, m)
+# def extract_spike(input, spike_alg):
+#    if spike_alg == "given":
+#       return input["SUA"][0,]
+#    else:
+#      raise BaseException("Invalid spike algorithm")
 
-df_pair_of_group = toolbox.group_and_combine(df, ["Condition", "Subject", "Structure", "Species"])
+# df = mk_block(df, ["input", "spike_alg"], extract_spike, (np_loader, "spike_sig", True), m) 
 
-tqdm.pandas(desc="Computing results")
 
-result_df = toolbox.get_columns(df_welch, ["signal", "signal_fs", "welch_pow", "welch_f"])
-print(result_df)
-df_loader.save("result.tsv", result_df)
+
+
+# signal_reshape = pd.DataFrame({
+#   "signal": {"lfp": "lfp_sig", "mu": "mu_sig", "spike": "spike_sig"},  
+#   "signal_fs": {"lfp": "lfp_fs", "mu": "mu_fs", "spike": "raw_fs"},  
+# })
+
+# df_signal = toolbox.dataframe_reshape(df, "signal_type", signal_reshape)
+# df_signal = df_signal[~ ((df_signal["Species"] == "Human") &  (df_signal["signal_type"] == "lfp"))]
+
+# df_welch = df_signal.loc[df_signal["signal_type"]!="spike"].copy()
+
+# df_welch["welch_window_duration"] = 3
+
+# def pwelch(signal, signal_fs, welch_window_duration):
+#    return scipy.signal.welch(signal, signal_fs, nperseg=welch_window_duration*signal_fs)
+
+# df_welch = mk_block(df_welch, ["signal", "signal_fs", "welch_window_duration"], pwelch, 
+#                      {0: (np_loader, "welch_f", True), 1: (np_loader, "welch_pow", True)}, m)
+
+# df_pair_of_group = toolbox.group_and_combine(df, ["Condition", "Subject", "Structure", "Species"])
+
+# tqdm.pandas(desc="Computing results")
+
+# result_df = toolbox.get_columns(df_welch, ["signal", "signal_fs", "welch_pow", "welch_f"])
+# print(result_df)
+# df_loader.save("result.tsv", result_df)
