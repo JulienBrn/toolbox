@@ -9,6 +9,7 @@ import sys
 import toolbox
 import scipy
 import mat73
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,10 @@ def mk_float_loader():
 
 def mk_matlab_loader():
   def load(path):
-    return scipy.io.loadmat(path)
+    try:
+      return scipy.io.loadmat(path)
+    except NotImplementedError:
+      return mat73.loadmat(path)
   
   def save(path, d: Dict[str:Any]):
     scipy.io.savemat(path, d)
@@ -97,7 +101,7 @@ class Manager:
   
 
 
-  def declare_ressource(self, path, loader, name="ValueRessource", id: str | None = None) -> RessourceHandle:
+  def declare_ressource(self, path, loader, name="ValueRessource", id: str | None = None, check = True) -> RessourceHandle:
     """ 
       Path must exist !
       Path must be compatible with extension
@@ -107,12 +111,13 @@ class Manager:
     path = pathlib.Path(path)
     if id is None:
       id = str(path)
-    if not path.exists():
-      raise ValueError("file {} must exist to declare a ressource from that location".format(path))
+    if check:
+      if not path.exists():
+        raise ValueError("file {} must exist to declare a ressource from that location".format(path))
     if path.suffix != loader.extension:
       raise ValueError("file {} must have extension {} (defined by loader). Current extension is {}".format(path, loader.extension, path.suffix))
     
-    ressource = Manager.Ressource(self, id, name, loader, path)
+    ressource = Manager.Ressource(self, id, name, loader, path, storage_locations=["Disk"])
     self.d[id] = ressource
     return ressource.handle
 
@@ -224,23 +229,25 @@ class Manager:
     value: Any | None = None
     computer: None | Manager.Computer = None   #If it has a computer is may be removed from disk depending on its save param
     computer_key: None | Any = None
-    storage_locations: List[str] = [] #Memory or Disk
+    storage_locations: List[str] #Memory or Disk
         
-    def __init__(self, manager, id, name, loader, base_storage, computing = (None, None)):
+    def __init__(self, manager, id, name, loader, base_storage, computing = (None, None), storage_locations = []):
       self.handle = RessourceHandle(manager, id, name)
-      if "Disk" in self.storage_locations:
-        logger.error("Ressource {} is on Disk. Locations: {}".format(self.handle.name, self.storage_locations))
+      # if "Disk" in self.storage_locations:
+      #   logger.error("Ressource {} is on Disk. Locations: {}".format(self.handle.name, self.storage_locations))
       self.loader = loader
       self.base_storage = base_storage
       self.computer = computing[0]
       self.computer_key = computing[1]
-      self.storage_locations =[]
-      if "Disk" in self.storage_locations:
-        logger.error("Ressource {} is on Disk. Locations: {}".format(self.handle.name, self.storage_locations))
+      self.storage_locations = storage_locations.copy()
+      # if "Disk" in self.storage_locations:
+      #   logger.error("Ressource {} is on Disk. Locations: {}".format(self.handle.name, self.storage_locations))
       path = self.get_disk_path()
       # logger.debug("Path is {}".format(path))
-      if path.exists():
-        self.storage_locations.append("Disk")
+      # if path.exists():
+      if not "Disk" in self.storage_locations:
+        if os.path.isfile(str(path)):
+          self.storage_locations.append("Disk")
         # logger.debug("Path {} exists".format(path))
       # else:
       #   logger.debug("Path {} does not exist".format(path))

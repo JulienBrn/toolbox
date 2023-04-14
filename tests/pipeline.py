@@ -2,6 +2,10 @@ from toolbox import Manager, np_loader, df_loader, float_loader, matlab_loader, 
 import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy, h5py, re, ast
 from tqdm import tqdm
 
+import cProfile
+import pstats
+from pstats import SortKey
+
 beautifullogger.setup(logmode="w")
 logger=logging.getLogger(__name__)
 logging.getLogger("toolbox.ressource_manager").setLevel(logging.WARNING)
@@ -10,6 +14,7 @@ logging.getLogger("toolbox.signal_analysis_toolbox").setLevel(logging.WARNING)
 computation_m = Manager("./tests/cache/computation")
 folder_manager = Manager("./tests/cache/folder_contents")
 dataframe_manager = Manager("./tests/cache/dataframes")
+
 
 
 ####INPUT Dataframe#######
@@ -105,9 +110,14 @@ def mk_rat_input() -> pd.DataFrame :
       ]
    rat_spikes_regexs = [
          re.compile("(?P<sln>.*)_Pr(?P<channel>[0-9]+)_(?P<neuron>.*)"),
+         re.compile("(?P<sln>.*)_mPr(?P<channel>[0-9]+)_(?P<neuron>.*)"), #make better
+         re.compile("(?P<sln>.*)_P(?P<channel>[0-9]+)_(?P<neuron>.*)"),  #make better
          re.compile("(?P<sln>.*)_Pr_(?P<channel>[0-9]+)_(?P<neuron>.*)"),
          re.compile("(?P<sln>.*)_Pr_(?P<channel>[0-9]+)(?P<neuron>)"),
+         re.compile("(?P<sln>.*)_Pr(?P<channel>[0-9]+)(?P<neuron>)"),
          re.compile("(?P<sln>.*)_(?P<neuron>(SS)|(mSS))_Pr_(?P<channel>[0-9]+)"),
+         re.compile("(?P<sln>.*)_(?P<neuron>(SS)|(mSS))_(?P<channel>STN)"),#make better
+         re.compile("(?P<sln>.*)_(?P<neuron>(SS)|(mSS))_(?P<channel>STN).*"),#make better
          re.compile("(?P<sln>.*)_(?P<channel>All)_(?P<neuron>STR)"),
       ]
    def raise_print(o):
@@ -178,17 +188,34 @@ if True:
 #################DECLARING RESSOURCES###################
 logger.info("Declaring ressources")
 
-# input_df = input_df.iloc[0:500,:].copy()
+# input_df = input_df.iloc[0:50,:].copy()
 
 tqdm.pandas(desc="Declaring file ressources")
 
 def get_file_ressource(d):
    if pathlib.Path(d["file_path"].iat[0]).stem != "Units":
-      ret =  computation_m.declare_ressource(d["file_path"].iat[0], matlab_loader)
+      ret =  computation_m.declare_ressource(d["file_path"].iat[0], matlab_loader, check=False)
    else:
-      ret =  computation_m.declare_ressource(d["file_path"].iat[0], matlab73_loader)
+      ret =  computation_m.declare_ressource(d["file_path"].iat[0], matlab73_loader, check=False)
    return d.apply(lambda row: ret, axis=1)
+
+# cProfile.run('input_df.groupby("file_path", group_keys=False).progress_apply(get_file_ressource)', "restats")
+# p = pstats.Stats('restats')
+# perf = pd.DataFrame(
+#     p.getstats(),
+#     columns=['func', 'ncalls', 'ccalls', 'tottime', 'cumtime', 'callers']
+# )
+# p.sort_stats(SortKey.CUMULATIVE).print_stats(30)
+# 
+
+# with toolbox.Profile() as pr:
 input_df["file_ressource"] = input_df.groupby("file_path", group_keys=False).progress_apply(get_file_ressource)
+
+# perf = pr.get_results()
+# perf["filename:lineno(function)"] = perf["filename:lineno(function)"].str.replace("/home/julien/miniconda3/envs/dev/lib/python3", "python", regex=False)
+# perf = perf[perf["cumtime"] > 1]
+
+# print(perf.sort_values(by=["cumtime"], ascending=False, ignore_index=True).to_string())
 
 tqdm.pandas(desc="Declaring array ressources")
 
@@ -351,8 +378,22 @@ signal_df = pd.concat([signal_df, signal_append], ignore_index=True).sort_values
 
 tqdm.pandas(desc="Declaring pwelch results")
 
-pwelch_df = signal_df[signal_df["signal_type"].isin(["lfp_raw_cleaned"])].copy()
+pwelch_df = signal_df[signal_df["signal_type"].isin(["lfp_cleaned", "bua_cleaned"])].copy()
 
+pwelch_params ={
+   "welch_window_duration":3
+}
+for key,val in pwelch_params.items():
+   pwelch_df[key] = val
+
+def pwelch(signal, signal_fs, welch_window_duration):
+   return scipy.signal.welch(signal, signal_fs, nperseg=welch_window_duration*signal_fs)
+
+pwelch_df = mk_block(pwelch_df, ["signal", "signal_fs", "welch_window_duration"], pwelch, 
+                     {0: (np_loader, "welch_f", True), 1: (np_loader, "welch_pow", True)}, computation_m)
+
+
+######### COHERENCE ANALYSIS #####################
 
 
 
