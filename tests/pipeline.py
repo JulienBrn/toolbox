@@ -556,7 +556,15 @@ class Window(QMainWindow, Ui_MainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = Window({"clean":cleaned_df, "lfp": lfp_df, "bua": bua_df})
+    win = Window({
+       "clean":cleaned_df, 
+       "lfp": lfp_df, 
+       "bua": bua_df, 
+       "coherence": coherence_df, 
+       "correlation": crosscorrelation_df, 
+       "pwelch": pwelch_df, 
+       "continuous_spike": spike_df,
+       "signal": signal_df})
     win.show()
     sys.exit(app.exec())
 
