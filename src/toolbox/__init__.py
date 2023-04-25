@@ -9,3 +9,4 @@ from toolbox.pipeline import mk_block, get_columns, save_columns
 from toolbox.ressource_manager import np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, Manager, RessourceHandle, RessourceLoader
 from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape
 from toolbox.profiling import Profile
+from toolbox.gui_toolbox import DataFrameModel, DisplayImg
