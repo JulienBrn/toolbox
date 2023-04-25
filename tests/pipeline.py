@@ -1,6 +1,7 @@
 from toolbox import Manager, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, read_folder_as_database, mk_block, replace_artefacts_with_nans2
 import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy, h5py, re, ast, sys
 from tqdm import tqdm
+import statsmodels.api as sm
 
 
 beautifullogger.setup(logmode="w")
@@ -218,7 +219,7 @@ input_df["file_ressource"] = input_df.groupby("file_path", group_keys=False).pro
 tqdm.pandas(desc="Declaring array ressources")
 
 def get_array_ressource(file_ressource, file_keys):
-   ktuple = ast.literal_eval(file_keys)
+   ktuple = ast.literal_eval(file_keys) if isinstance(file_keys, str) else file_keys
    res = file_ressource
    for key in ktuple:
       res = res[key]
@@ -410,14 +411,14 @@ coherence_df = toolbox.group_and_combine(signal_df[signal_df["signal_type"].isin
 
 coherence_params ={
    "window_duration":3,
-   "version":1
+   "version":2
 }
 
 for key,val in coherence_params.items():
    coherence_df[key] = val
 
 def compute_coherence(version, signal_1, signal_fs_1, signal_2, signal_fs_2, window_duration):
-   if signal_fs_1 != signal_fs_2:
+   if signal_fs_1 != signal_fs_2 or signal_1.shape != signal_2.shape:
       # logger.warning("The two signals do not have the same fs")
       return {"frequencies":np.nan, "pow": np.nan, "phase": np.nan}
    else:
@@ -436,9 +437,21 @@ logger.info("Coherence dataframe has {} entries. A snapshot is:\n{}".format(len(
 df_loader.save("coherence_df.tsv", coherence_df)
 
 
+######### (AUTO/CROSS)CORRELATION ANALYSIS #####################
 
+crosscorrelation_df = toolbox.group_and_combine(signal_df[signal_df["signal_type"].isin(["spike_continuous"])], ["Condition", "Subject", "Species", "Session", "Date", "SubSessionInfo", "SubSessionInfoType"], include_eq=True)
 
-
+def compute_crosscorrelation(signal_1, signal_fs_1, signal_2, signal_fs_2):
+   if signal_fs_1 != signal_fs_2 or signal_1.shape != signal_2.shape:
+      # logger.warning("The two signals do not have the same fs")
+      return np.nan, np.nan
+   else:
+      ccf = sm.tsa.stattools.ccf(signal_1, signal_2)
+      return signal_fs_1, ccf
+   
+tqdm.pandas(desc="Declaring ressources for crosscorrelation_df") 
+crosscorrelation_df = mk_block(crosscorrelation_df, ["signal_1", "signal_fs_1", "signal_2", "signal_fs_2"], compute_crosscorrelation, 
+                     {0: (np_loader, "ccf_f", True), 1: (np_loader, "ccf", True)}, computation_m)
 
 
 ########### RESULT COMPUTATION ###################
@@ -447,9 +460,14 @@ df_loader.save("coherence_df.tsv", coherence_df)
 # print(toolbox.get_columns(signal_df, ["signal"]))
 
 tqdm.pandas(desc="Computing pwelch", colour="red")
-print(toolbox.get_columns(pwelch_df, ["welch_f", "welch_pow"]))
+# print(toolbox.get_columns(pwelch_df, ["welch_f", "welch_pow"]))
+toolbox.save_columns(pwelch_df, ["welch_f", "welch_pow"])
+tqdm.pandas(desc="Computing crosscorrelation", colour="red")
+toolbox.save_columns(crosscorrelation_df, ["ccf_f", "ccf"])
 tqdm.pandas(desc="Computing coherence", colour="red")
-print(toolbox.get_columns(coherence_df, ["coherence_f", "coherence_pow"]))
+toolbox.save_columns(coherence_df, ["coherence_f", "coherence_pow"])
+
+logger.info("Done")
 
 # raise BaseException("stop")
 

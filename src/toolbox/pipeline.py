@@ -54,3 +54,15 @@ def get_columns(df, columns):
   df[columns] = df.progress_apply(compute_and_clean_row, axis=1, result_type="expand")
   result_df = df[[col for col in df.columns if not isinstance(df[col].iat[0], RessourceHandle)]]
   return result_df
+
+def save_columns(df, columns):
+  if isinstance(columns, str):
+      columns=[columns]
+  def save(row):
+      for col in columns:
+         if isinstance(row[col], RessourceHandle):
+            h: RessourceHandle = row[col]
+            h.save()
+  df.progress_apply(save, axis=1)
+  # result_df = df[[col for col in df.columns if not isinstance(df[col].iat[0], RessourceHandle)]]
+  # return result_df

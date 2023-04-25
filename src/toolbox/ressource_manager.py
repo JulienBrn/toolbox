@@ -10,6 +10,7 @@ import toolbox
 import scipy
 import mat73
 import os
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +192,22 @@ class Manager:
         raise BaseException("Ressource should have been computed but is not")
       if ressource.value is None:
         logger.error("Value is None but should be stored in memory. Probably a bug in the ressource manager.")
-      return ressource.value
+      ret = ressource.value
+      self.unload_memory_if_necessary()
+      return ret
+    
+  def unload_memory_if_necessary(self):
+    if psutil.virtual_memory()[3]/1000000000 > 25: #25Gb
+      logger.warning("Memory usage was high, unloading")
+      for r in self.d.values():
+        handle: RessourceHandle = r.handle
+        if handle.is_saved_on_disk():
+          handle.unload()
+      if psutil.virtual_memory()[3]/1000000000 > 20: #20Gb
+        logger.warning("Memory usage was high even after unloading saved results, unloading fully")
+        for r in self.d.values():
+          handle: RessourceHandle = r.handle
+          handle.unload()
 
   def save_on_disk(self, id):
     ressource = self.d[id]
@@ -211,7 +227,7 @@ class Manager:
     return "Memory" in self.d[id].storage_locations
   
   def is_saved_on_disk(self, id) -> bool:
-    return "Disk" in self.d[self.id].storage_locations
+    return "Disk" in self.d[id].storage_locations
   
   def unload(self, id):
     ressource = self.d[id]
