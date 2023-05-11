@@ -10,7 +10,7 @@ import toolbox
 import scipy
 import mat73
 import os
-import psutil
+import psutil, hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +74,25 @@ def mk_matlab73_loader():
 
   return RessourceLoader(".mat", load, save)
 
+import json
+
+def mk_json_loader():
+  def load(path):
+     with open(str(path), "r") as fp:
+      return json.load(fp)
+  
+  def save(path, d):
+    with open(str(path), "w") as fp:
+      json.dump(d , fp, indent=4) 
+
+  return RessourceLoader(".mat", load, save)
+
 df_loader = mk_df_loader()
 np_loader = mk_numpy_loader()
 float_loader = mk_float_loader()
 matlab_loader = mk_matlab_loader()
 matlab73_loader = mk_matlab73_loader()
+json_loader = mk_json_loader()
 
 class Manager:
   IdType = str
@@ -89,6 +103,7 @@ class Manager:
 
   def __init__(self, base_folder): 
     self.base_folder = base_folder
+    pathlib.Path(base_folder / pathlib.Path("hash")).mkdir(parents=True, exist_ok=True)
 
   def create_value_ressource(self, value, path, loader, storage: List[str], name="ValueRessource") -> RessourceHandle: 
     """ 
@@ -223,6 +238,15 @@ class Manager:
   def is_stored(self, id) -> bool:
     return self.d[id].storage_locations != []
 
+  def invalidate_all(self, id):
+    ressource = self.d[id]
+    if not ressource.computer is None:
+      ressource.remove_from_memory()
+      ressource.remove_from_disk()
+    for id,rec in self.d.items():
+      if rec.computer and ressource in rec.computer.params.values():
+        rec.invalidate_all()
+
   def is_in_memory(self, id) -> bool: 
     return "Memory" in self.d[id].storage_locations
   
@@ -262,7 +286,7 @@ class Manager:
       # logger.debug("Path is {}".format(path))
       # if path.exists():
       if not "Disk" in self.storage_locations:
-        if os.path.isfile(str(path)):
+        if os.path.isfile(str(path)) and pathlib.Path(path).exists():
           self.storage_locations.append("Disk")
         # logger.debug("Path {} exists".format(path))
       # else:
@@ -278,10 +302,11 @@ class Manager:
       #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       if self.computer is None:
         self.disk_path = self.base_storage
+        self._core_path = self.base_storage
       else:
         (loader, id, save) = self.computer.out[self.computer_key]
         ext = loader.extension
-        def compute_param_str(ressource):
+        def compute_param_str_old(ressource):
           # logger.debug("Ressource is {}".format(ressource.handle.name))
           name = ressource.handle.name
           if ressource.computer is None:
@@ -291,8 +316,32 @@ class Manager:
           return "{}_{}/{}".format(
             name, 
             toolbox.clean_filename(str(static_params)), 
-            "/".join([compute_param_str(ressource.handle.manager.d[p.id]) for p in ressourceParams.values()]))
-        self.disk_path = self.base_storage / pathlib.Path("{}{}".format(compute_param_str(self), ext))
+            "/".join([compute_param_str_old(ressource.handle.manager.d[p.id]) for p in ressourceParams.values()]))
+        def compute_param_str(ressource):
+          # logger.debug("Ressource is {}".format(ressource.handle.name))
+          name = ressource.handle.name
+          if ressource.computer is None:
+            return ressource.handle.id
+          static_params = {key:p for key, p in ressource.computer.params.items() if not isinstance(p, RessourceHandle)}
+          ressourceParams = {key:p for key, p in ressource.computer.params.items() if isinstance(p, RessourceHandle)}
+          return ("{}_{}/{}".format(
+            name, 
+            str(static_params), 
+            ".".join([str(ressource.handle.manager.d[p.id].get_disk_path()) for p in ressourceParams.values()])),
+            {"name": name, "static_params": static_params, "ressourceParams": {key:p.manager.d[p.id]._core_path for key, p in ressourceParams.items()}})
+        core_path,core_full_path = compute_param_str(self)
+        self._core_path = core_full_path
+        # core_path_old = compute_param_str_old(self)
+        # old_disk_path = self.base_storage / pathlib.Path("{}{}".format(core_path, ext))
+        # old_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path_old.encode()).hexdigest(), ext))
+        new_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path.encode()).hexdigest(), ext))
+        # if old_disk_path.exists():
+          # print("renamed")
+          # os.rename(str(old_disk_path), str(new_disk_path))
+        # else:
+        #   pass
+          # print("ignored")
+        self.disk_path = new_disk_path
       # if "Disk" in self.storage_locations:
       #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       return self.disk_path
@@ -321,9 +370,10 @@ class Manager:
         return 
       logger.info("Ressource {} is being loaded into memory".format(self.get_disk_path()))
       if not "Disk" in self.storage_locations:
-        raise BaseException("Bug in Ressource Manager. Ressource should be on disk but is not.")
+        raise BaseException("Bug in Ressource Manager. Ressource should be on disk at path {} but is not.".format(self.get_disk_path()))
       if not self.get_disk_path().exists():
-        raise BaseException("Bug in Ressource Manager. Incoherent location state.")
+        # logger.error("Bug in Ressource Manager. Incoherent location state.")
+        raise BaseException("Bug in Ressource Manager. Incoherent location state. Ressource should be on disk at path {} but is not.".format(self.get_disk_path()))
       self.value = self.loader.load(self.get_disk_path())
       self.storage_locations.append("Memory")
       # if "Disk" in self.storage_locations:
@@ -335,6 +385,12 @@ class Manager:
         logger.info("Ressource {} is being removed from memory".format(self.get_disk_path()))
         self.value = None
         self.storage_locations.remove("Memory")
+
+    def remove_from_disk(self):
+      if "Disk" in self.storage_locations:
+        logger.info("Ressource {} is being removed from disk".format(self.get_disk_path()))
+        self.get_disk_path().unlink()
+        self.storage_locations.remove("Disk")
 
   class Computer:
     func: Callable
@@ -378,10 +434,15 @@ class RessourceHandle:
   def unload(self):
     self.manager.unload(self.id)
 
+  def invalidate_all(self):
+    self.manager.invalidate_all(self.id)
+
   def __str__(self):
     if self.is_in_memory():
       res = self.get_result()
       if hasattr(res, "shape"):
+          if res.size == 0:
+            return "Rec(None)"
           return "Rec(shape{})".format(res.shape)
       elif hasattr(res, "__len__"):
          return "Rec({}_of_{}_elements)".format(type(res), len(res))

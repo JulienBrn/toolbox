@@ -2,6 +2,10 @@ import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import  QModelIndex
 from PyQt5.QtGui import QIcon, QImage, QPixmap
 import pandas as pd
+from toolbox import RessourceHandle
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DisplayImg:
     def __init__(self, img):
@@ -13,7 +17,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
 
     def __init__(self, df=pd.DataFrame(), parent=None):
         super(DataFrameModel, self).__init__(parent)
-        self._dataframe = df
+        self._dataframe = df.copy()
 
     def setDataFrame(self, dataframe):
         self.beginResetModel()
@@ -48,17 +52,19 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         if not index.isValid() or not (0 <= index.row() < self.rowCount() \
             and 0 <= index.column() < self.columnCount()):
             return QtCore.QVariant()
-        row = self._dataframe.index[index.row()]
+        row = index.row()
         col = self._dataframe.columns[index.column()]
         dt = self._dataframe[col].dtype
-
+        if row >= len(self._dataframe.index):
+            logger.error("Invalid index {} to acces dataframe of size {}".format(row, len(self._dataframe.index)))
+            return QtCore.QVariant()
         val = self._dataframe.iloc[row][col]
         if role == QtCore.Qt.DisplayRole:
             # if isinstance(val, DisplayImg):
             #     print("Showing img")
             #     return val.image
             # else:
-            return str(val)
+                return str(val)
         # elif role == DataFrameModel.DecorationRole:
         #     print("decoration")
         elif role == DataFrameModel.ValueRole:
@@ -75,7 +81,35 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         }
         return roles
     def sort(self, col, asc):
-        self._dataframe.sort_values(by=self._dataframe.columns[col], inplace=True, ascending=asc, ignore_index=True)
+        def mkey(col):
+            def custom_key(x):
+                param1 = str(type(x))
+                if isinstance(x, RessourceHandle):
+                    if x.is_in_memory():
+                        param2 = 10
+                        if hasattr(x.get_result(), "shape"):
+                            param3= x.get_result().shape
+                        elif hasattr(x.get_result(), "__len__"):
+                            param3 = (len(x),)
+                        else:
+                            param3 = 0
+                        param4 = str(x.get_result())
+                    else:
+                        param2 = 2 if x.is_saved_on_disk() else 1
+                        param3=(0,)
+                        param4=str(x)
+                else:
+                    param2 = 0
+                    param3=(0,)
+                    param4=str(x)
+                return (param1, param2, param3, param4)
+            return col.apply(lambda x: custom_key(x))
+        try:
+            self._dataframe.sort_values(by=self._dataframe.columns[col], inplace=True, ascending=asc)
+            self._dataframe.reset_index(drop=True, inplace=True)
+        except:
+            self._dataframe.sort_values(by=self._dataframe.columns[col], inplace=True, ascending=asc, key=mkey)
+            self._dataframe.reset_index(drop=True, inplace=True)
         self.dataChanged.emit(
             self.createIndex(0,0), self.createIndex(len(self._dataframe.index), len(self._dataframe.columns)), (QtCore.Qt.EditRole,)
         ) 

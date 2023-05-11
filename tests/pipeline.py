@@ -196,7 +196,7 @@ if True:
 #################DECLARING RESSOURCES###################
 logger.info("Declaring ressources")
 
-input_df = input_df.iloc[0:100,:].copy()
+input_df = input_df.iloc[0:200,:].copy()
 
 tqdm.pandas(desc="Declaring file ressources")
 
@@ -454,6 +454,30 @@ crosscorrelation_df = mk_block(crosscorrelation_df, ["signal_1", "signal_fs_1", 
                      {0: (np_loader, "ccf_f", True), 1: (np_loader, "ccf", True)}, computation_m)
 
 
+############################# VIEWING #######################
+
+
+import sys
+import matplotlib, importlib
+import matplotlib.pyplot as plt
+
+matplotlib.use('Qt5Agg')
+
+
+print("Backend used by matplotlib is: ", matplotlib.get_backend())
+from PyQt5 import QtCore, QtWidgets
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+
+
+# class MplCanvas(FigureCanvasQTAgg):
+
+#     def __init__(self, parent=None, width=5, height=4, dpi=100):
+#         fig = Figure(figsize=(width, height), dpi=dpi)
+#         self.axes = fig.add_subplot(111)
+#         super(MplCanvas, self).__init__(fig)
+
 
 
 
@@ -479,76 +503,64 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 class GetResult(QThread):
    progress = pyqtSignal(int)
-   def __init__(self, model, indices):
+   def __init__(self, model, indices, cols):
       super().__init__()
       self.model = model
       self.indices = indices
+      self.cols = cols
    def run(self):
       model = self.model
       indices = self.indices
       df = model._dataframe
-      # self.progressBar.setMaximum(len(indices))
-      # self.progressBar.setValue(0)
       for index in indices:
-         self.progress.emit(1)
-         # self.progressBar.setValue(self.progressBar.value()+1)
-         for colind, col in enumerate(df.columns):
+         for colind, col in enumerate(self.cols):
             if isinstance(df[col].iat[index], toolbox.RessourceHandle):
                df[col].iat[index].get_result()
                model.dataChanged.emit(
                   model.createIndex(index,colind),  model.createIndex(index+1,colind+1), (QtCore.Qt.EditRole,)
                ) 
+         self.progress.emit(1)
 
 class Window(QMainWindow, Ui_MainWindow):
     def __init__(self, dfs, parent=None):
         super().__init__(parent)
         self.setupUi(self)
+        
+      #   self.mpl = MplCanvas(self, width=5, height=4, dpi=100)
+        self.mpl.canvas.ax.plot([0,1,2,3,4], [10,1,20,3,40])
+      #   self.mpl.canvas.draw()
         df_listmodel = QStandardItemModel()
         self.listView.setModel(df_listmodel)
         self.df_models = {}
-        for dfname, df in dfs.items():
+        self.df_cols = {}
+        for dfname, (df, cols) in dfs.items():
          df_listmodel.appendRow(QStandardItem(dfname))
          self.df_models[dfname] = DataFrameModel(df.reset_index(drop=True))
-
+         self.df_cols[dfname] = cols
+        
+        self.listView.setCurrentIndex(self.listView.model().index(0, 0))
         self.curr_df = list(dfs.keys())[0]
         self.tableView.setModel(self.df_models[self.curr_df])
         self.tableView.setSortingEnabled(True)
-        self.connectSignalsSlots()
-        self.splitter.setStretchFactor(1,3)
+        self.splitter.setStretchFactor(1,6)
         self.process= None
         self.progressBar.setValue(0)
         def compute(indices):
          if self.process and self.process.isRunning():
              print("A computational process is already running, please wait")
          else:
-            # def exec(): 
-            #    model = self.tableView.model()
-            #    df = model._dataframe
-            #    # self.progressBar.setMaximum(len(indices))
-            #    # self.progressBar.setValue(0)
-            #    for index in indices:
-            #       # self.progressBar.setValue(self.progressBar.value()+1)
-            #       for colind, col in enumerate(df.columns):
-            #          if isinstance(df[col].iat[index], toolbox.RessourceHandle):
-            #             df[col].iat[index].get_result()
-            #             model.dataChanged.emit(
-            #                model.createIndex(index,colind),  model.createIndex(index+1,colind+1), (QtCore.Qt.EditRole,)
-            #             ) 
             self.progressBar.setMaximum(len(indices))
             self.progressBar.setValue(0)
             def progress(amount):
                self.progressBar.setValue(self.progressBar.value()+amount)
 
-            self.process = GetResult(self.tableView.model(), indices)
+            self.process = GetResult(self.tableView.model(), indices, self.df_cols[self.curr_df])
             self.process.progress.connect(progress)
             self.process.start()
            
         self.compute.clicked.connect(lambda: compute([i.row() for i in self.tableView.selectionModel().selectedRows()]))
 
 
-    def connectSignalsSlots(self):
-      #   self.action_Exit.triggered.connect(self.close)
-      pass
     @QtCore.pyqtSlot("QModelIndex")
     def on_listView_clicked(self, model_index):
        self.curr_df = list(self.df_models.keys())[model_index.row()]
@@ -557,37 +569,34 @@ class Window(QMainWindow, Ui_MainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = Window({
-       "clean":cleaned_df, 
-       "lfp": lfp_df, 
-       "bua": bua_df, 
-       "coherence": coherence_df, 
-       "correlation": crosscorrelation_df, 
-       "pwelch": pwelch_df, 
-       "continuous_spike": spike_df,
-       "signal": signal_df})
+       "clean": (cleaned_df, ["cleaned_signal", "clean_bounds"]),
+       "lfp": (lfp_df, ["lfp_sig", "lfp_fs"]),
+       "bua": (bua_df, ["bua_sig", "bua_fs"]),
+       "coherence": (coherence_df, ["coherence_f", "coherence_pow", "coherence_phase"]),
+       "correlation": (crosscorrelation_df, ["ccf_f", "ccf"]),
+       "pwelch": (pwelch_df,  ["welch_f", "welch_pow"]),
+       "continuous_spike": (spike_df,["spike_sig"]),
+       "all_signals": (signal_df, ["signal", "signal_fs"])}) 
     win.show()
     sys.exit(app.exec())
 
-# def window():
-#    app = QApplication(sys.argv)
-#    widget = QWidget()
 
-#    textLabel = QLabel(widget)
-#    textLabel.setText("Hello World!")
-#    textLabel.move(110,85)
 
-#    widget.setGeometry(50,50,320,200)
-#    widget.setWindowTitle("PyQt5 Example")
 
-#    table_model =DataFrameModel(, widget)
-#    table=QTableView(widget)
-#    table.setModel(table_model)
-#    # table.setSizePolicy(QWidget.QSizePolicy.Expanding, QWidget.QSizePolicy.Expanding)
-#    widget.show()
-#    sys.exit(app.exec_())
 
-# if __name__ == '__main__':
-#    window()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ########### RESULT COMPUTATION ###################
