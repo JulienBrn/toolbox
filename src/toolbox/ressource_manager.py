@@ -302,7 +302,7 @@ class Manager:
       #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       if self.computer is None:
         self.disk_path = self.base_storage
-        self._core_path = self.base_storage
+        self.old_disk_path = self.base_storage
       else:
         (loader, id, save) = self.computer.out[self.computer_key]
         ext = loader.extension
@@ -324,24 +324,28 @@ class Manager:
             return ressource.handle.id
           static_params = {key:p for key, p in ressource.computer.params.items() if not isinstance(p, RessourceHandle)}
           ressourceParams = {key:p for key, p in ressource.computer.params.items() if isinstance(p, RessourceHandle)}
-          return ("{}_{}/{}".format(
+
+          old_core_path = "{}_{}/{}".format(
             name, 
             str(static_params), 
-            ".".join([str(ressource.handle.manager.d[p.id].get_disk_path()) for p in ressourceParams.values()])),
-            {"name": name, "static_params": static_params, "ressourceParams": {key:p.manager.d[p.id]._core_path for key, p in ressourceParams.items()}})
-        core_path,core_full_path = compute_param_str(self)
-        self._core_path = core_full_path
-        # core_path_old = compute_param_str_old(self)
-        # old_disk_path = self.base_storage / pathlib.Path("{}{}".format(core_path, ext))
-        # old_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path_old.encode()).hexdigest(), ext))
+            ".".join([str(ressource.handle.manager.d[p.id].old_disk_path) for p in ressourceParams.values()]))
+          
+          new_core_path = "{}_{}/{}".format(
+            name, 
+            str(dict(sorted(static_params.items()))), 
+            ".".join([str(ressource.handle.manager.d[p.id].get_disk_path()) for p in dict(sorted(ressourceParams.items())).values()]))
+          
+          return (new_core_path, old_core_path)
+        core_path, old_core_path = compute_param_str(self)
         new_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path.encode()).hexdigest(), ext))
-        # if old_disk_path.exists():
-          # print("renamed")
-          # os.rename(str(old_disk_path), str(new_disk_path))
-        # else:
-        #   pass
-          # print("ignored")
+        if old_core_path:
+          old_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(old_core_path.encode()).hexdigest(), ext))
+          if (old_disk_path != new_disk_path) and old_disk_path.exists():
+            os.rename(str(old_disk_path), str(new_disk_path))
+        else:
+          old_disk_path=""
         self.disk_path = new_disk_path
+        self.old_disk_path=old_disk_path
       # if "Disk" in self.storage_locations:
       #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       return self.disk_path

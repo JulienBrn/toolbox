@@ -150,9 +150,9 @@ def prepare_figures2(metadata, figs_param, ignore_legend = False, **kwargs):
                     color_nums["final_label"] = color_nums.apply(lambda row: row["first"] if row["count"]==1 else "{} (n={})".format(row["first"], row["count"]), axis=1)
                     handles=[ax[ri, ci].plot([], color=colorv, label=colorl)[0] for colorv, colorl in zip(color_nums.index.to_list(),color_nums["final_label"].to_list())]
                     if not ignore_legend :
-                        ax[ri, ci].legend(handles=handles, loc='upper right', fancybox=True, shadow=True, framealpha=0.8)
+                        ax[ri, ci].legend(handles=handles, loc='upper right', fancybox=True, shadow=True, framealpha=0.1)
                     else:
-                        ax[ri, ci].legend(handles=handles, loc='upper left', fancybox=True, shadow=True, bbox_to_anchor=(0.75, 1.), framealpha=0.5)
+                        ax[ri, ci].legend(handles=handles, loc='upper left', fancybox=True, shadow=True, bbox_to_anchor=(0.75, 1.), framealpha=0.1)
         # handles, labels = ax[nb_rows-1, nb_cols-1].get_legend_handles_labels()
         # f.legend(handles=handles,labels=labels, loc='lower center', fancybox=True, shadow=True)
         if "Row_label" in metadata.columns:
