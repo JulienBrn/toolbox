@@ -227,6 +227,7 @@ class PlotCanvas:
                 else:
                     if hasattr(x_data, "shape") or hasattr(x_data, "__len__"):
                         ax.plot(x_data, y_data, color=row["Color"], label="_index: "+str(row_index), **kwargs)
+                        # logger.info("plotting")
                     else:
                         ax.scatter([x_data], [y_data], color=row["Color"], label="_index: "+str(row_index), **kwargs)
             except:

@@ -103,7 +103,7 @@ class Manager:
 
   def __init__(self, base_folder): 
     self.base_folder = base_folder
-    pathlib.Path(base_folder / pathlib.Path("hash")).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(base_folder).mkdir(parents=True, exist_ok=True)
 
   def create_value_ressource(self, value, path, loader, storage: List[str], name="ValueRessource") -> RessourceHandle: 
     """ 
@@ -325,11 +325,17 @@ class Manager:
           static_params = {key:p for key, p in ressource.computer.params.items() if not isinstance(p, RessourceHandle)}
           ressourceParams = {key:p for key, p in ressource.computer.params.items() if isinstance(p, RessourceHandle)}
 
-          old_core_path = "{}_{}/{}".format(
-            name, 
-            str(static_params), 
-            ".".join([str(ressource.handle.manager.d[p.id].old_disk_path) for p in ressourceParams.values()]))
+          # old_core_path = "{}_{}/{}".format(
+          #   name, 
+          #   str(static_params), 
+          #   ".".join([str(ressource.handle.manager.d[p.id].old_disk_path) for p in ressourceParams.values()]))
           
+          # old_core_path = "{}_{}/{}".format(
+          #   name, 
+          #   str(dict(sorted(static_params.items()))), 
+          #   ".".join([str(ressource.handle.manager.d[p.id].old_disk_path) for p in dict(sorted(ressourceParams.items())).values()]))
+          old_core_path = None
+
           new_core_path = "{}_{}/{}".format(
             name, 
             str(dict(sorted(static_params.items()))), 
@@ -337,15 +343,18 @@ class Manager:
           
           return (new_core_path, old_core_path)
         core_path, old_core_path = compute_param_str(self)
-        new_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path.encode()).hexdigest(), ext))
+        if self.handle.name == "":
+          logger.warning("name is empty")
+        new_disk_path = self.base_storage / pathlib.Path(self.handle.name) / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(core_path.encode()).hexdigest(), ext))
         if old_core_path:
           old_disk_path = self.base_storage / pathlib.Path("hash") / pathlib.Path("{}{}".format(hashlib.md5(old_core_path.encode()).hexdigest(), ext))
           if (old_disk_path != new_disk_path) and old_disk_path.exists():
+            new_disk_path.parent.mkdir(parents=True, exist_ok=True)
             os.rename(str(old_disk_path), str(new_disk_path))
         else:
           old_disk_path=""
         self.disk_path = new_disk_path
-        self.old_disk_path=old_disk_path
+        self.old_disk_path= old_disk_path
       # if "Disk" in self.storage_locations:
       #   logger.debug("Ressource {} is on Disk".format(self.handle.name))
       return self.disk_path
