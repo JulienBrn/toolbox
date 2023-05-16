@@ -17,7 +17,9 @@ def read_folder_as_database(
     logger.info("Read folder as database called")
     if not isinstance(pattern, List):
         pattern = [pattern]
-
+    if not search_folder.exists():
+       logger.warning("search folder does not exist")
+       return pd.DataFrame([],columns=["filename", "ext"]+ columns +["path"])
     raw_files=[]
     for p in pattern:
         raw_files += search_folder.glob(p)
@@ -31,6 +33,7 @@ def read_folder_as_database(
         else:
             logger.debug("Ignored file {} because {} != {}".format(file, file.parents[len(columns)], search_folder))
     database = pd.DataFrame(l,columns=["filename", "ext"]+ columns +["path"])
+    logger.info("Read folder as database done. {} elements".format(len(database.index)))
     return database
 
 import re

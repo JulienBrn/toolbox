@@ -14,5 +14,5 @@ setup(
     download_url = 'https://github.com/JulienBrn/toolbox.git',
     package_dir={'': 'src'},
     keywords=['python', 'dataframe'],
-    install_requires=['pandas', 'matplotlib'],
+    install_requires=['pandas', 'matplotlib', 'PyQt5', "sklearn", "scipy", "numpy", "scikit-learn", "mat73", "psutil"],
 )
