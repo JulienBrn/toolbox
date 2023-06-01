@@ -11,6 +11,7 @@ import scipy
 import mat73
 import os
 import psutil, hashlib
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,43 @@ def mk_json_loader():
 
   return RessourceLoader(".mat", load, save)
 
-df_loader = mk_df_loader()
-np_loader = mk_numpy_loader()
-float_loader = mk_float_loader()
-matlab_loader = mk_matlab_loader()
-matlab73_loader = mk_matlab73_loader()
-json_loader = mk_json_loader()
+class Error:
+  def __init__(self, e):
+    self.e = e
+  def __str__(self):
+    return "Error({})".format(self.e)
+  def __repr__(self):
+    return self.__str__
+  
+def mk_loader_with_error(loader):
+  def save(path, d):
+    if isinstance(d, Error):
+      with open(str(path), 'w') as f:
+        f.write('__Error:{}'.format(d.e))
+    else:
+      loader.save(path, d)
+
+  def load(path):
+    with open(str(path), 'r') as f:
+      try:
+        s = f.read(8)
+        if s == '__Error:':
+          return Error(BaseException(f.read()))
+      except:
+        pass
+    return loader.load(path)
+  return RessourceLoader(loader.extension, load, save)
+    
+
+
+df_loader = mk_loader_with_error(mk_df_loader())
+np_loader = mk_loader_with_error(mk_numpy_loader())
+float_loader = mk_loader_with_error(mk_float_loader())
+matlab_loader = mk_loader_with_error(mk_matlab_loader())
+matlab73_loader = mk_loader_with_error(mk_matlab73_loader())
+json_loader = mk_loader_with_error(mk_json_loader())
+
+
 
 class Manager:
   IdType = str
@@ -184,22 +216,44 @@ class Manager:
     if "Memory" in ressource.storage_locations: #For now, do not additionaly save on disk
       if ressource.value is None:
         logger.error("Value is None but should be stored in memory. Probably a bug in the ressource manager.")
+      if isinstance(ressource.value, Error):
+        real_params = {key:val for key, val in ressource.computer.params.items()}
+        logger.error("Ressource value in memory is error for {}({}). Error is {}".format(ressource.handle.name,str(real_params), ressource.value))
       return ressource.value
     if "Disk" in ressource.storage_locations: #For now, we keep in memory
       ressource.disk_to_memory()
-      return ressource.value
+      ret = ressource.value
+      # if isinstance(ressource.value, Error):
+      #   real_params = {key:val for key, val in ressource.computer.params.items()}
+      #   logger.error("Ressource value on disk is error for {}({}). Error is {}".format(ressource.handle.name,str(real_params), ressource.value))
+      if not isinstance(ressource.value, Error):
+        self.unload_memory_if_necessary()
+        return ret
+      else:
+        ressource.remove_from_memory()
+        ressource.remove_from_disk()
     if ressource.storage_locations != []:
-      logger.error("Unknown storage location")
+      logger.error("Unknown storage location in {}".format(ressource.storage_locations))
     if ressource.computer is None:
       raise BaseException("Ressource is not saved but cannot be either computed...")
     else:
       real_params = {key:val if not isinstance(val, RessourceHandle) else val.get_result() for key, val in ressource.computer.params.items()}
+      error_params = {key:val for key, val in real_params.items() if isinstance(val, Error)}
+      if len(error_params) > 0:
+        logger.error("Error while computing ressource {}({}). Error is is due to paramters {}".format(ressource.handle.name,str(real_params), error_params))
+        return Error(BaseException("Error in parameters {}".format(error_params)))
       logger.info("Ressource {} is being computed".format(ressource.get_disk_path()))
-      res = ressource.computer.func(**real_params)
+      try:
+        res = ressource.computer.func(**real_params)
+      except KeyboardInterrupt as e:
+        raise e
+      except BaseException as e:
+        logger.error("Error while computing ressource {}({}). Error is {}".format(ressource.handle.name,str(real_params), e))
+        res = Error(e)
       for key, (loader, childid, save) in ressource.computer.out.items():
         rec = self.d[childid]
         if "Memory" not in rec.storage_locations:
-          rec.value = res[key]
+          rec.value = res[key] if not isinstance(res, Error) else res
           rec.storage_locations.append("Memory")
           if "Disk" not in rec.storage_locations and save:
             rec.memory_to_disk()
@@ -212,13 +266,13 @@ class Manager:
       return ret
     
   def unload_memory_if_necessary(self):
-    if psutil.virtual_memory()[3]/1000000000 > 25: #25Gb
+    if psutil.virtual_memory()[3]/1000000000 > 20: #25Gb
       logger.warning("Memory usage was high, unloading")
       for r in self.d.values():
         handle: RessourceHandle = r.handle
         if handle.is_saved_on_disk():
           handle.unload()
-      if psutil.virtual_memory()[3]/1000000000 > 20: #20Gb
+      if psutil.virtual_memory()[3]/1000000000 > 15: #20Gb
         logger.warning("Memory usage was high even after unloading saved results, unloading fully")
         for r in self.d.values():
           handle: RessourceHandle = r.handle
@@ -322,8 +376,19 @@ class Manager:
           name = ressource.handle.name
           if ressource.computer is None:
             return ressource.handle.id
-          static_params = {key:p for key, p in ressource.computer.params.items() if not isinstance(p, RessourceHandle)}
-          ressourceParams = {key:p for key, p in ressource.computer.params.items() if isinstance(p, RessourceHandle)}
+          
+          def flatten_dict_of_list(d):
+            res= {}
+            for key, v in d.items():
+              if isinstance(v, list):
+                nd= {("{}_{}".format(key, i)):vi for i,vi in enumerate(v)}
+              else:
+                nd = {key:v}
+              res = dict(res, **nd)
+            return res
+          tmp_params = flatten_dict_of_list(ressource.computer.params)
+          static_params = {key:p for key, p in tmp_params.items() if not isinstance(p, RessourceHandle)}
+          ressourceParams = {key:p for key, p in tmp_params.items() if isinstance(p, RessourceHandle)}
 
           # old_core_path = "{}_{}/{}".format(
           #   name, 
@@ -453,6 +518,13 @@ class RessourceHandle:
   def __str__(self):
     if self.is_in_memory():
       res = self.get_result()
+      if isinstance(res, float):
+        return str(res)
+      if isinstance(res, int):
+        return str(res)
+      if isinstance(res, np.int64):
+        return str(res)
+      # print(type(res))
       if hasattr(res, "shape"):
           if res.size == 0:
             return "Rec(None)"

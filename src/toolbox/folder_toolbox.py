@@ -52,13 +52,10 @@ def extract_wildcards(strlist, pattern):
         d = regex.match(s)
         if not d is None:
           d=d.groupdict()
-          d["rel_path"] = s
+          # d["path"] = s
           # print("dict: ", d)
           res.append(d)
-    df = pd.DataFrame(
-        res, 
-        columns=["rel_path", "condition", "subject", "structure", "date", "unit"]
-      )
+    df = pd.DataFrame(res)
     return df
 
 def files_as_database(config):
