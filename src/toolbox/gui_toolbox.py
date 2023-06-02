@@ -113,3 +113,4 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         self.dataChanged.emit(
             self.createIndex(0,0), self.createIndex(len(self._dataframe.index), len(self._dataframe.columns)), (QtCore.Qt.EditRole,)
         ) 
+

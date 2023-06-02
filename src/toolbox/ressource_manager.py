@@ -12,6 +12,7 @@ import mat73
 import os
 import psutil, hashlib
 import numpy as np
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,8 @@ class Manager:
       except KeyboardInterrupt as e:
         raise e
       except BaseException as e:
-        logger.error("Error while computing ressource {}({}). Error is {}".format(ressource.handle.name,str(real_params), e))
+        tb = traceback.format_exc()
+        logger.error("Error while computing ressource {}({}). Error is {}. \n\nTraceback:\n{}".format(ressource.handle.name,str(real_params), e, tb))
         res = Error(e)
       for key, (loader, childid, save) in ressource.computer.out.items():
         rec = self.d[childid]
