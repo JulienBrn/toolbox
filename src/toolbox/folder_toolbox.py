@@ -36,26 +36,31 @@ def read_folder_as_database(
     logger.info("Read folder as database done. {} elements".format(len(database.index)))
     return database
 
-import re
+import re, tqdm
 
 recup_wild = re.compile('{.+?}')
-def extract_wildcards(strlist, pattern):
-    print("pattern: ", pattern)
+def extract_wildcards(strlist, pattern: str, file_col = "Files", tqdm = tqdm.tqdm):
+    cols = []
     def msub(match):
         val = match.group()
-        print(val)
+        cols.append(val[1:-1])
         return '(?P<{}>.*)'.format(val[1:-1])
     regex_str = recup_wild.sub(msub, pattern)
     regex = re.compile(regex_str)
     res=[]
-    for s in strlist:
+    for s in tqdm(strlist):
         d = regex.match(s)
         if not d is None:
           d=d.groupdict()
+        else:
+          d = {c:None for  c in cols}
           # d["path"] = s
           # print("dict: ", d)
-          res.append(d)
+        d[file_col] = s
+        res.append(d)
     df = pd.DataFrame(res)
+    for col in df.columns:
+       df[col]=df[col].astype(str)
     return df
 
 def files_as_database(config):
@@ -161,3 +166,72 @@ def clean_filename(filename, whitelist=valid_filename_chars, replace=' '):
     if len(cleaned_filename)>char_limit:
         print("Warning, filename truncated because it was over {}. Filenames may no longer be unique".format(char_limit))
     return cleaned_filename[:char_limit]    
+
+import tqdm, os
+def find_files_recursively(path, tqdm=None):
+    files = []
+    # total=1 assumes `path` is a file
+    if not tqdm is None:
+      t = tqdm(desc="Finding recursive files", total=1, unit="file", disable=False)
+    else:
+       t = tqdm.tqdm(total=1, unit="file", disable=True)
+    if not os.path.exists(path):
+        raise IOError("Cannot find:" + path)
+
+    def append_found_file(f):
+        files.append(f)
+        t.update()
+
+    def list_found_dir(path):
+        """returns os.listdir(path) assuming os.path.isdir(path)"""
+        listing = os.listdir(path)
+        # subtract 1 since a "file" we found was actually this directory
+        t.total += len(listing) - 1
+        # fancy way to give info without forcing a refresh
+        t.set_postfix(dir=path[-10:], refresh=False)
+        t.update(0)  # may trigger a refresh
+        return listing
+
+    def recursively_search(path):
+        if os.path.isdir(path):
+            for f in list_found_dir(path):
+                recursively_search(os.path.join(path, f))
+        else:
+            append_found_file(path)
+
+    recursively_search(path)
+    t.set_postfix(dir=path)
+    t.close()
+    return files
+
+
+
+import ast
+class DataPath:
+    file_path: str
+    keys: List[Any]
+
+    def __init__(self, file_path, keys=[]):
+        self.file_path = file_path
+        self.keys = keys
+
+    def __str__(self):
+        if len(self.keys) > 0:
+            return "File({})[{}]".format(self.file_path, ", ".join([str(key) for key in self.keys]))
+        else:
+            return "File({})".format(self.file_path)
+        
+    def __repr__(self):
+        return self.__str__()
+    
+    @staticmethod
+    def from_str(s):
+       r = re.compile("File\(([^)]+)\)(.*)")
+       d = r.fullmatch(s).groups()
+       file = d[0]
+       if len(d[1]) ==0:
+          keys=[]
+       else:
+          keys=d[1][1:-1].split(", ")
+       return DataPath(file, keys)
+    

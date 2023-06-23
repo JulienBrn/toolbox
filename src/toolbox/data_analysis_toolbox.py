@@ -31,13 +31,14 @@ class crange(): #should inherit from collections.abc.Collection
             max_right= max_left
             max_left = center - (max_right - center)
         if direction_right is None:
-            self.direction_right = (max_right - center) >= (center - max_left)
+            direction_right = (max_right - center) >= (center - max_left)
 
 
         self.center = center
         self.step = step
         self.mleft = int((max_left - center)/step)
         self.mright= int((max_right - center)/step)
+        self.direction_right = direction_right
         # print(self.mleft, self.mright)
 
     def __len__(self): return self.mright - self.mleft +1

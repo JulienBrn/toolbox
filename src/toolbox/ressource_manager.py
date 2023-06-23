@@ -90,12 +90,16 @@ def mk_json_loader():
   return RessourceLoader(".mat", load, save)
 
 class Error:
-  def __init__(self, e):
+  def __init__(self, e, tb=None):
     self.e = e
+    self.tb = tb
   def __str__(self):
-    return "Error({})".format(self.e)
+    if self.tb is None:
+      return "Error({})".format(self.e)
+    else:
+      return "Error({}).\n{}".format(self.e, self.tb)
   def __repr__(self):
-    return self.__str__
+    return self.__str__()
   
 def mk_loader_with_error(loader):
   def save(path, d):
@@ -170,7 +174,7 @@ class Manager:
     self.d[id] = ressource
     return ressource.handle
 
-  def declare_computable_ressource(self, function, params: Dict[str, Any], loader, name, save: bool | None = None) -> RessourceHandle:
+  def declare_computable_ressource(self, function, params: Dict[str, Any], loader, name, save: bool | None = None, error_method="propagate") -> RessourceHandle:
     """
       Path is auto-computed
       Path may already exist or not on disk
@@ -179,9 +183,9 @@ class Manager:
     def single_key_func(*args, **kwargs):
       logger.debug("Single key for ressource {} called with {} {}".format(name, args, kwargs.keys()))
       return {0 : function(*args, **kwargs)}
-    return self.declare_computable_ressources(single_key_func, params, {0: (loader, name, save)})[name]
+    return self.declare_computable_ressources(single_key_func, params, {0: (loader, name, save)}, error_method=error_method)[name]
 
-  def declare_computable_ressources(self, function, params: Dict[str, Any], out: Dict[Any, Tuple[RessourceLoader, str, bool | None]]) -> Dict[str, RessourceHandle]:
+  def declare_computable_ressources(self, function, params: Dict[str, Any], out: Dict[Any, Tuple[RessourceLoader, str, bool | None]], error_method="propagate") -> Dict[str, RessourceHandle]:
     """
       Same, but this time the function can compute several ressources
       the set of results is identified by: {key: function(params)[key] for key in out.keys()}
@@ -192,7 +196,7 @@ class Manager:
     
     new_out = {key: (loader, mk_id(loader, name, params), save) for key, (loader, name, save) in out.items()}
 
-    computer = Manager.Computer(function, params, new_out)
+    computer = Manager.Computer(function, params, new_out, error_method=error_method)
     def mk_ressource(key, loader, name, save):
       id = mk_id(loader, name, params)
       ressource = Manager.Ressource(self, id, name, loader, self.base_folder, (computer, key))
@@ -240,18 +244,22 @@ class Manager:
     else:
       real_params = {key:val if not isinstance(val, RessourceHandle) else val.get_result() for key, val in ressource.computer.params.items()}
       error_params = {key:val for key, val in real_params.items() if isinstance(val, Error)}
-      if len(error_params) > 0:
+      if ressource.computer.error_method !="filter" and len(error_params) > 0:
+        # print("Err method for ressource:", ressource.handle.name, ressource.computer.error_method)
         logger.error("Error while computing ressource {}({}). Error is is due to paramters {}".format(ressource.handle.name,str(real_params), error_params))
-        return Error(BaseException("Error in parameters {}".format(error_params)))
-      logger.info("Ressource {} is being computed".format(ressource.get_disk_path()))
-      try:
-        res = ressource.computer.func(**real_params)
-      except KeyboardInterrupt as e:
-        raise e
-      except BaseException as e:
-        tb = traceback.format_exc()
-        logger.error("Error while computing ressource {}({}). Error is {}. \n\nTraceback:\n{}".format(ressource.handle.name,str(real_params), e, tb))
-        res = Error(e)
+        res = Error(BaseException("Error in parameters {}".format(error_params)))
+        # if 
+        # return 
+      else:
+        logger.info("Ressource {} is being computed".format(ressource.get_disk_path()))
+        try:
+          res = ressource.computer.func(**{k:v for k,v in real_params.items() if not isinstance(v, Error)})
+        except KeyboardInterrupt as e:
+          raise e
+        except BaseException as e:
+          tb = traceback.format_exc()
+          logger.error("Error while computing ressource {}({}). Error is {}. \n\nTraceback:\n{}".format(ressource.handle.name,str(real_params), e, tb))
+          res = Error(e, tb)
       for key, (loader, childid, save) in ressource.computer.out.items():
         rec = self.d[childid]
         if "Memory" not in rec.storage_locations:
@@ -268,17 +276,24 @@ class Manager:
       return ret
     
   def unload_memory_if_necessary(self):
-    if psutil.virtual_memory()[3]/1000000000 > 20: #25Gb
-      logger.warning("Memory usage was high, unloading")
+    mem = psutil.virtual_memory()
+    if mem.available/1000000000 < 10: #25Gb
+      logger.warning("Memory usage was {}, unloading".format({k:v/1000000000 for k, v in mem._asdict().items()}))
       for r in self.d.values():
         handle: RessourceHandle = r.handle
         if handle.is_saved_on_disk():
           handle.unload()
-      if psutil.virtual_memory()[3]/1000000000 > 15: #20Gb
-        logger.warning("Memory usage was high even after unloading saved results, unloading fully")
+      mem = psutil.virtual_memory()
+      if mem.available/1000000000 <10: #20Gb
+        logger.warning("Memory usage was {} even after unloading saved results, unloading fully".format({k:v/1000000000 for k, v in mem._asdict().items()}))
         for r in self.d.values():
           handle: RessourceHandle = r.handle
           handle.unload()
+      mem = psutil.virtual_memory()
+      logger.warning("Finishing with memory {}".format({k:v/1000000000 for k, v in mem._asdict().items()}))
+      if mem.available/1000000000 <10: #20Gb
+        logger.error("Memory problem. Unable to guarantee memory space")
+    
 
   def save_on_disk(self, id):
     ressource = self.d[id]
@@ -477,10 +492,11 @@ class Manager:
     params: Dict[str, Any]
     out: Dict[Any, Tuple[RessourceLoader, Manager.IdType, bool | None]]
 
-    def __init__(self, func, params, out: Dict[Any, Tuple[RessourceLoader, Manager.IdType, bool | None]]):
+    def __init__(self, func, params, out: Dict[Any, Tuple[RessourceLoader, Manager.IdType, bool | None]], error_method="propagate"):
       self.func = func
       self.params = params
       self.out = out
+      self.error_method = error_method
 
 
 class RessourceHandle:
@@ -508,6 +524,13 @@ class RessourceHandle:
   def is_stored(self) -> bool:
     return self.manager.is_stored(self.id)
   
+  def is_saved_on_compute(self) -> bool:
+    r = self.manager.d[self.id]
+    if r.computer:
+      if r.computer.out[r.computer_key][2]:
+        return True
+    return False
+
   def save(self): 
     self.manager.save_on_disk(self.id)
 
@@ -530,8 +553,12 @@ class RessourceHandle:
       if hasattr(res, "shape"):
           if res.size == 0:
             return "Rec(None)"
+          if res.size < 5:
+            return "Rec({})".format(res)
           return "Rec(shape{})".format(res.shape)
       elif hasattr(res, "__len__"):
+         if len(res) < 5:
+            return "Rec({})".format(res)
          return "Rec({}_of_{}_elements)".format(type(res), len(res))
       else:
           return "Rec({})".format(str(res)[0:30])
@@ -541,3 +568,8 @@ class RessourceHandle:
       return "UncomputedRec"
 
 
+def get(x):
+  if isinstance(x, RessourceHandle):
+    return x.get_result()
+  else:
+    return x
