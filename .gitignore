@@ -1,0 +1,8 @@
+*log*.txt
+*.log
+*cache*
+*.egg-info
+*.code-workspace
+*params.json
+*/Old/*
+*.py.bak
