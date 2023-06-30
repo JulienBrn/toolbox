@@ -277,21 +277,21 @@ class Manager:
     
   def unload_memory_if_necessary(self):
     mem = psutil.virtual_memory()
-    if mem.available/1000000000 < 10: #25Gb
+    if mem.available/1000000000 < 4: #25Gb
       logger.warning("Memory usage was {}, unloading".format({k:v/1000000000 for k, v in mem._asdict().items()}))
       for r in self.d.values():
         handle: RessourceHandle = r.handle
         if handle.is_saved_on_disk():
           handle.unload()
       mem = psutil.virtual_memory()
-      if mem.available/1000000000 <10: #20Gb
+      if mem.available/1000000000 <4: #20Gb
         logger.warning("Memory usage was {} even after unloading saved results, unloading fully".format({k:v/1000000000 for k, v in mem._asdict().items()}))
         for r in self.d.values():
           handle: RessourceHandle = r.handle
           handle.unload()
       mem = psutil.virtual_memory()
       logger.warning("Finishing with memory {}".format({k:v/1000000000 for k, v in mem._asdict().items()}))
-      if mem.available/1000000000 <10: #20Gb
+      if mem.available/1000000000 <4: #20Gb
         logger.error("Memory problem. Unable to guarantee memory space")
     
 

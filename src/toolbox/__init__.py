@@ -10,3 +10,4 @@ from toolbox.ressource_manager import get, Error, json_loader, np_loader, df_loa
 from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape
 from toolbox.profiling import Profile
 from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel
+from toolbox.gui import GUIDataFrame, Window, mk_result_tab, export_fig
