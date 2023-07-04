@@ -41,6 +41,12 @@ class Video(collections.abc.Sequence):
     def width(self):
         return self[0].shape[1]
     
+
+    def __str__(self):
+        return f"Video(#frames{self.nb_frames}, w={self.width}, h={self.height}, fps={self.fps}, duration={self.duration})"
+    def __repr__(self):
+        return self.__str__()
+    
     def copy(self):
         return Video(copy=self)
     
