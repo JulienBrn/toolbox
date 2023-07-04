@@ -561,7 +561,7 @@ class RessourceHandle:
             return "Rec({})".format(res)
          return "Rec({}_of_{}_elements)".format(type(res), len(res))
       else:
-          return "Rec({})".format(str(res)[0:30])
+          return "Rec({})".format(str(res)[0:50])
     elif self.is_stored():
       return "StoredRec({})".format(self.manager.d[self.id].storage_locations)
     else:

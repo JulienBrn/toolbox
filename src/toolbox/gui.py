@@ -229,7 +229,7 @@ class Task(QtCore.QObject):
 
    process: TaskThread
 
-   def __init__(self, window, name, onstart, onend, run, kwargs):
+   def __init__(self, window, name, onstart, onend, run, kwargs, on_curr_thread=False):
       super().__init__()
       self.window = window
       self.name = name
@@ -243,6 +243,7 @@ class Task(QtCore.QObject):
 
       self.update_signal.connect(lambda cur, total, display: self.update_bar(cur, total, display))
       self.process=None
+      self.on_curr_thread = on_curr_thread
 
    def update_bar(self, cur, total, display_str):
       progress_bar = self.window.progressBar
@@ -261,9 +262,15 @@ class Task(QtCore.QObject):
          self.window.process_task()
       try:
          if not self.onstart(**self.kwargs, task_info={"errors": self.errors, "warnings": self.warnings, "progress": progress_class}) is False:
-            self.process = TaskThread(self.f, self.kwargs, self.errors, self.warnings, progress_class)
-            self.process.finished.connect(finish)
-            self.process.start()
+            if not self.on_curr_thread:
+               self.process = TaskThread(self.f, self.kwargs, self.errors, self.warnings, progress_class)
+               self.process.finished.connect(finish)
+               self.process.start()
+            else:
+               r = self.f(**self.kwargs, task_info={"errors": self.errors, "warnings": self.warnings, "progress": progress_class})
+               self.process = TaskThread(self.f, self.kwargs, self.errors, self.warnings, progress_class)
+               self.process.res = r
+               finish()
       except KeyboardInterrupt as e:
          raise e
       except BaseException as e:
@@ -534,7 +541,7 @@ class Window(QMainWindow, Ui_MainWindow):
               if curr_time - last_time > 5:
                  last_time=curr_time
                  update()
-      task = Task(self, "compute", lambda task_info: True, lambda task_info: update(), run, {})
+      task = Task(self, "compute", lambda task_info: True, lambda task_info: update(), run, {}, on_curr_thread=True)
       return task
       # def compute(df, indices, __curr_task: Task):
       #    for i in tqdm(indices):
