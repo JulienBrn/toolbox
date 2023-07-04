@@ -65,8 +65,20 @@ class Video(collections.abc.Sequence):
         else:
             raise NotImplementedError(f"Unhandled indexing type {type(pos)} for video")
         
+    def __iter__(self):
+        import cv2
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self.iterpos=0
+        return self
     
-
+    def __next__(self):
+        if self.iterpos < self.nb_frames:
+            ret, frame = self.vid.read()
+            res = self._transform(frame, self.iterpos)
+            self.iterpos+=1
+            return res
+        else:
+            raise StopIteration
     # @property
     # def position(self):
     #     import cv2
@@ -119,6 +131,8 @@ class Video(collections.abc.Sequence):
         out.release()
 
     def _transform(self, frame: Image, i):
+        if self.transformations is []:
+            return frame
         f = frame.copy()
         for t in self.transformations:
             if t[0] == "map":
