@@ -549,6 +549,8 @@ class RessourceHandle:
         return str(res)
       if isinstance(res, np.int64):
         return str(res)
+      if isinstance(res, toolbox.Video):
+        return str(res)
       # print(type(res))
       if hasattr(res, "shape"):
           if res.size == 0:
