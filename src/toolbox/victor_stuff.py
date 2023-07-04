@@ -17,8 +17,7 @@ class Video(collections.abc.Sequence):
             import cv2
             self.vid = cv2.VideoCapture(str(path))
             self.source_path = str(path)
-        self.transformations=[]
-        
+            self.transformations=[]
 
     @property
     def fps(self):
@@ -33,6 +32,14 @@ class Video(collections.abc.Sequence):
     @property
     def duration(self):
         return self.nb_frames/self.fps
+    
+    @property
+    def height(self):
+        return self[0].shape[0]
+    
+    @property
+    def width(self):
+        return self[0].shape[1]
     
     def copy(self):
         return Video(copy=self)
