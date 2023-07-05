@@ -7,7 +7,7 @@ matplotlib.use('qtagg')
 
 class FigureList:
   i: int
-  max_len: int | None
+  max_len: int
   exit: bool
   rnum : re
   text = None
