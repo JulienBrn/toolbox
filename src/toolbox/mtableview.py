@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Tuple, Dict, Any
 from toolbox import json_loader, RessourceHandle, Manager, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, read_folder_as_database, mk_block, replace_artefacts_with_nans2
+import toolbox
 import logging, beautifullogger, pathlib, pandas as pd, toolbox, numpy as np, scipy, h5py, re, ast, sys
 from tqdm import tqdm
 import statsmodels.api as sm
@@ -28,6 +29,7 @@ class MTableView(QTableView):
 
     def contextMenuEvent(self, event):
         selection = [(i.row(), i.column()) for i in self.selectionModel().selection().indexes()]
+        item_selected = self.model()._dataframe.iloc[self.selectionModel().selection().indexes()[0].row(), self.selectionModel().selection().indexes()[0].column()]
         self.menu = QMenu(self)
         computeAction = QAction('Compute', self)
         loadAction = QAction('Load', self)
@@ -36,6 +38,13 @@ class MTableView(QTableView):
         plotAction = QAction('Plot', self)
         viewRow = QAction('View row', self)
         showtype = QAction('show type', self)
+        
+        if len(selection) == 1 and isinstance(item_selected, RessourceHandle):
+           if item_selected.get_loader() == toolbox.video_loader:
+              export_vid = QAction('export video', self)
+              export_vid.triggered.connect(lambda: self.exportVid(item_selected))
+              self.menu.addAction(export_vid)
+
         viewRow.triggered.connect(lambda: self.viewRowSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         computeAction.triggered.connect(lambda: self.computeSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         loadAction.triggered.connect(lambda: self.loadSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
@@ -53,6 +62,13 @@ class MTableView(QTableView):
         # add other required actions
         self.menu.popup(QCursor.pos())
       
+
+    def exportVid(self, video: RessourceHandle):
+       vid = video.get_result()
+       path, ok = QFileDialog.getSaveFileName(self, caption="Save video to", filter="*.mp4")
+       if ok:
+          vid.save(path)
+
     def message_box(self, msg):
        b = QMessageBox()
        b.setText(msg)

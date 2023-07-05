@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Tuple, List, Union
 import numpy as np, pandas as pd, tqdm, logging
 import collections
+from toolbox.ressource_manager import mk_loader_with_error, mk_json_loader, RessourceLoader
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +138,9 @@ class Video(collections.abc.Sequence):
 
     def save(self, path, tqdm = tqdm.tqdm):
         import cv2
-        out = cv2.VideoWriter()
-        tqdm.set_description("Writing video")
-        for f in tqdm(self):
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(path, fourcc, self.fps, (self.width, self.height))
+        for f in tqdm(self, desc = "Writing video"):
             out.write(f)
         out.release()
 
@@ -156,7 +157,14 @@ class Video(collections.abc.Sequence):
                 raise NotImplementedError("Transformation type not implemented")
         return f
 
+def mk_video_loader():
+    def load(path):
+        return Video(path)
+    def save(path, vid):
+        vid.save(path)
+    return RessourceLoader(".mp4", load, save)
 
+video_loader = mk_loader_with_error(mk_video_loader())
 
 class Line:
     def __init__(
@@ -236,7 +244,7 @@ class Rectangle:
     def __repr__(self):
         return self.__str__()
     
-from toolbox.ressource_manager import mk_loader_with_error, mk_json_loader, RessourceLoader
+
 def mk_rectangle_loader() -> RessourceLoader:
     def save(path, r: Rectangle):
         mk_json_loader().save(path, {"start_x": r.start_x, "start_y": r.start_y, "end_x": r.end_x, "end_y": r.end_y})

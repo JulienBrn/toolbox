@@ -11,4 +11,4 @@ from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape
 from toolbox.profiling import Profile
 from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel
 from toolbox.gui import GUIDataFrame, Window, mk_result_tab, export_fig
-from toolbox.victor_stuff import Line, Rectangle, Video, Image, rectangle_loader
+from toolbox.victor_stuff import Line, Rectangle, Video, Image, rectangle_loader, video_loader

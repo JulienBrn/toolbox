@@ -524,6 +524,9 @@ class RessourceHandle:
   def is_stored(self) -> bool:
     return self.manager.is_stored(self.id)
   
+  def get_loader(self):
+    return self.manager.d[self.id].loader
+  
   def is_saved_on_compute(self) -> bool:
     r = self.manager.d[self.id]
     if r.computer:
