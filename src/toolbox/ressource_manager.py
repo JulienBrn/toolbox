@@ -578,3 +578,45 @@ def get(x):
     return x.get_result()
   else:
     return x
+  
+def execute_as_subprocess(f: str, out: Tuple[RessourceLoader, str], args:List[Tuple[Any, RessourceLoader, str]], import_modules):
+  out_file = ".___exec_as_subprocess___out"+out[0].extension
+  in_files=[]
+  for i, (arg, loader, loader_str) in enumerate(args):
+    loader.save(f".___exec_as_subprocess___{i}"+loader.extension, arg)
+    in_files.append(f".___exec_as_subprocess___{i}"+loader.extension)
+
+  starter = f"import toolbox, {', '.join(import_modules)}"
+  arg_files = f"arg_files={in_files}"
+  arg_loaders = f"arg_loaders=[{', '.join([arg[2] for arg in args])}]"
+  pargs = f"args = [l.load(f) for f, l in zip(arg_files, arg_loaders)]"
+  res=f"res = {f}(*args)"
+  pout_file=f"out_file = '{out_file}'"
+  pout= f"{out[1]}.save(out_file, res)"
+
+  mprocess=str(
+f"""
+{starter}
+try:
+  {arg_files}
+  {arg_loaders}
+  {pargs}
+  {res}
+except BaseException as e:
+  res = toolbox.Error(e)
+{pout_file}
+{pout}
+""")
+  import subprocess
+  p = subprocess.run(["python"], input=mprocess, text=True, capture_output=True, encoding="utf-8")
+  if str(p.stderr) !="" or str(p.stdout) !="":
+      logger.warning(f"Crop process stderr:\n{p.stderr}\nCrop process stdout:\n{p.stdout}")
+  try:
+    ret = out[0].load(out_file)
+  except BaseException as e:
+    ret = toolbox.Error(f"Unable to load result. Probably a problem in the subprocess. Error is {e}")
+  pathlib.Path(out_file).unlink(missing_ok=True)
+  for f in in_files:
+    pathlib.Path(f).unlink(missing_ok=True)
+  return ret
+  

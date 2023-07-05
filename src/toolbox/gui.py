@@ -175,7 +175,7 @@ class GUIDataFrame:
    tqdm: tqdm.tqdm
    _dataframe: toolbox.RessourceHandle[pd.DataFrame]
 
-   def __init__(self, name,metadata: Dict[str, Tuple[str, str]], df_ressource_manager: toolbox.Manager, other_dfs={}, save=False, alternative_names =[]):
+   def __init__(self, name,metadata: Dict[str, str], df_ressource_manager: toolbox.Manager, other_dfs={}, save=False, alternative_names =[]):
       #Metadata param should be handled by func
       self.name = name
       self.alternative_names =alternative_names
@@ -525,9 +525,9 @@ class Window(QMainWindow, Ui_MainWindow):
       # min_j = min((j for i,j in indices if mfilter(df.iloc[i, j])), default=0)
       # max_j = max((j for i,j in indices if mfilter(df.iloc[i, j])), default=0)
       def update():
-         # self.tableView.model().dataChanged.emit(
-         # self.tableView.model().createIndex(min_i, min_j), 
-         # self.tableView.model().createIndex(max_i, max_j))
+         self.tableView.model().dataChanged.emit(
+         self.tableView.model().createIndex(0, 0), 
+         self.tableView.model().createIndex(1, 1))
          pass
       def run(task_info):
           nonlocal indices
@@ -541,7 +541,7 @@ class Window(QMainWindow, Ui_MainWindow):
               if curr_time - last_time > 5:
                  last_time=curr_time
                  update()
-      task = Task(self, "compute", lambda task_info: True, lambda task_info: update(), run, {}, on_curr_thread=True)
+      task = Task(self, "compute", lambda task_info: True, lambda task_info: update(), run, {}, on_curr_thread=False)
       return task
       # def compute(df, indices, __curr_task: Task):
       #    for i in tqdm(indices):

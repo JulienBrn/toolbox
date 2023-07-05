@@ -255,6 +255,10 @@ class Rectangle:
     def __repr__(self):
         return self.__str__()
     
+    def as_dict(self):
+        return {"start_x": self.start_x, "start_y": self.start_y, "end_x": self.end_x, "end_y": self.end_y}
+    
+    
 
 def mk_rectangle_loader() -> RessourceLoader:
     def save(path, r: Rectangle):
