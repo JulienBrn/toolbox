@@ -21,8 +21,8 @@ class Video(collections.abc.Sequence):
             self.vid = cv2.VideoCapture(str(path))
             self.source_path = str(path)
             self.transformations=[]
-            self.width = self[0].shape[0]
-            self.height = self[0].shape[1]
+            self.width = self[0].shape[1]
+            self.height = self[0].shape[0]
 
     @property
     def fps(self):
@@ -123,12 +123,12 @@ class Video(collections.abc.Sequence):
             vid = self
             
         if isinstance(crop, Rectangle):
-            self.width = crop.width
-            self.height = crop.height
+            vid.width = crop.width
+            vid.height = crop.height
             vid.transformations.append(("map", lambda frame: frame[crop.start_y:crop.end_y, crop.start_x:crop.end_x]))
         if isinstance(crop, pd.DataFrame):
-            self.width = crop["end_x"].iloc[0] - crop["start_x"].iloc[0]
-            self.height = crop["end_y"].iloc[0] - crop["start_y"].iloc[0]
+            vid.width = crop["end_x"].iat[0] - crop["start_x"].iat[0]
+            vid.height = crop["end_y"].iat[0] - crop["start_y"].iat[0]
             vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
         return vid
 
@@ -149,7 +149,9 @@ class Video(collections.abc.Sequence):
         import cv2
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(path, fourcc, self.fps, (self.width, self.height))
-        for f in tqdm(self, desc = "Writing video"):
+        for f in tqdm(self, desc = f"Writing video {path}"):
+            if self.width != f.shape[1] or self.height != f.shape[0]:
+                logger.warning(f"Problem when writting frame. Dimensions do not match. Video size ({self.width}, {self.height}), frame size ({f.shape[1]}, {f.shape[0]})")
             out.write(f)
         out.release()
 
