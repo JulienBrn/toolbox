@@ -12,13 +12,17 @@ class Video(collections.abc.Sequence):
     def __init__(self, path=None, copy: Video=None):
         if not copy is None:
             self.vid = copy.vid
-            self.transformations=copy.transformations
+            self.transformations=copy.transformations.copy()
+            self.width=copy.width
+            self.height=copy.height
             self.source_path = copy.source_path
         elif not path is None:
             import cv2
             self.vid = cv2.VideoCapture(str(path))
             self.source_path = str(path)
             self.transformations=[]
+            self.width = self[0].shape[0]
+            self.height = self[0].shape[1]
 
     @property
     def fps(self):
@@ -34,13 +38,13 @@ class Video(collections.abc.Sequence):
     def duration(self):
         return self.nb_frames/self.fps
     
-    @property
-    def height(self):
-        return self[0].shape[0]
+    # @property
+    # def height(self):
+    #     return self[0].shape[0]
     
-    @property
-    def width(self):
-        return self[0].shape[1]
+    # @property
+    # def width(self):
+    #     return self[0].shape[1]
     
 
     def __str__(self):
@@ -117,9 +121,14 @@ class Video(collections.abc.Sequence):
             vid = self.copy()
         else:
             vid = self
+            
         if isinstance(crop, Rectangle):
+            self.width = crop.width
+            self.height = crop.height
             vid.transformations.append(("map", lambda frame: frame[crop.start_y:crop.end_y, crop.start_x:crop.end_x]))
         if isinstance(crop, pd.DataFrame):
+            self.width = crop["end_x"].iloc[0] - crop["start_x"].iloc[0]
+            self.height = crop["end_y"].iloc[0] - crop["start_y"].iloc[0]
             vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
         return vid
 
