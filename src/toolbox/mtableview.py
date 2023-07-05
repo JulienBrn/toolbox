@@ -44,6 +44,10 @@ class MTableView(QTableView):
               export_vid = QAction('export video', self)
               export_vid.triggered.connect(lambda: self.exportVid(item_selected))
               self.menu.addAction(export_vid)
+           if item_selected.is_saved_on_disk():
+              open_in_file_manager = QAction('open in file manager', self)
+              open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
+              self.menu.addAction(open_in_file_manager)
 
         viewRow.triggered.connect(lambda: self.viewRowSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         computeAction.triggered.connect(lambda: self.computeSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
@@ -62,6 +66,14 @@ class MTableView(QTableView):
         # add other required actions
         self.menu.popup(QCursor.pos())
       
+    def open_in_file_manager(self, r: RessourceHandle):
+       path = r.get_disk_path()
+       import subprocess
+       subprocess.run(["gdbus", "call", "--session", 
+                       "--dest", "org.freedesktop.FileManager1", 
+                       "--object-path", "/org/freedesktop/FileManager1", 
+                       "--method", "org.freedesktop.FileManager1.ShowItems", 
+                       "['file://{}']".format(str(path.absolute())), ""])
 
     def exportVid(self, video: RessourceHandle):
        vid = video.get_result()

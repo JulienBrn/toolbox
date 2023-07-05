@@ -87,7 +87,7 @@ def mk_json_loader():
     with open(str(path), "w") as fp:
       json.dump(d , fp, indent=4) 
 
-  return RessourceLoader(".mat", load, save)
+  return RessourceLoader(".json", load, save)
 
 class Error:
   def __init__(self, e, tb=None):
