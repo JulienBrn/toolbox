@@ -180,13 +180,26 @@ class GUIDataFrame:
       self.name = name
       self.alternative_names =alternative_names
       self.metadata = metadata
-      for df in other_dfs.values():
-         self.metadata = {**self.metadata, **df.metadata}
+      # for df in other_dfs.values():
+      #    self.metadata = {**self.metadata, **df.metadata}
       self.tqdm = tqdm.tqdm
-      self.invalidated = True
+      self.df_ressource_manager = df_ressource_manager
+      self.other_dfs=other_dfs
+      self.save = save
+      self.update_df()
+
+   def get_df(self) -> pd.DataFrame: 
+      self.update_df()
+      return self._dataframe_out.get_result()
+      
+   def get_full_df(self) -> pd.DataFrame:
+      self.update_df()
+      return self._dataframe.get_result()
+   
+   def update_df(self):
       def mcompute_df(**kwargs):
          logger.info("Computing df {}".format(self.name))
-         for t in other_dfs.values():
+         for t in self.other_dfs.values():
             t.tqdm = self.tqdm
          ret= self.compute_df(**kwargs)
          if hasattr(self, "key_columns"):
@@ -201,15 +214,17 @@ class GUIDataFrame:
          else:
             return ret.drop(columns=dropped_cols)
       
-      self._dataframe = df_ressource_manager.declare_computable_ressource(mcompute_df, {n:df._dataframe_out for n, df in other_dfs.items()}, df_loader, "Dataframe {}".format(self.name), save)
-      self._dataframe_out = df_ressource_manager.declare_computable_ressource(mcompute_output_df, {"ret":self._dataframe}, df_loader, "Dataframe out {}".format(self.name), False)
-
-   def get_df(self) -> pd.DataFrame: 
-      return self._dataframe_out.get_result()
-      
-   def get_full_df(self) -> pd.DataFrame:
-      return self._dataframe.get_result()
-   
+      for df in self.other_dfs.values():
+         df.update_df()
+      df_params = {n:df._dataframe_out for n, df in self.other_dfs.items()}
+      meta_params = {n.replace(".", "_"):v for n,v in self.metadata.items()}
+      old_id = self._dataframe.id if hasattr(self, "_dataframe") else None
+      self._dataframe = self.df_ressource_manager.declare_computable_ressource(mcompute_df,dict(**df_params, **meta_params), df_loader, "Dataframe {}".format(self.name), self.save)
+      self._dataframe_out = self.df_ressource_manager.declare_computable_ressource(mcompute_output_df, {"ret":self._dataframe}, df_loader, "Dataframe out {}".format(self.name), False)
+      updated = self._dataframe.id != old_id
+      if updated:
+         logger.info(f"Updated dataframe {self.name} Metadata now is\n{self.metadata}")
+      return updated
       # return self._dataframe.get_result()
    
    def compute_df(self):
@@ -381,7 +396,7 @@ class Window(QMainWindow, Ui_MainWindow):
       # self.next.clicked.connect(get_next)
       # self.previous.clicked.connect(get_prev)
       self.aborttask.clicked.connect(lambda: self.process_task(abort_cur=True))
-      self.menu_tabs.currentChanged.connect(lambda index: self.on_computation_tab_clicked() if index==1 else None)
+      self.menu_tabs.currentChanged.connect(lambda index: self.reload_from_selection() if index==1 else None)
       self.dataframe_list.clicked.connect(lambda index: self.reload_from_selection())
       self.result_tabs.tabCloseRequested.connect(lambda i: self.tab_close(i))
 
@@ -430,7 +445,6 @@ class Window(QMainWindow, Ui_MainWindow):
          def computefunc(df, current_df, task_info):
                for d in self.dfs:
                   d.tqdm = task_info["progress"]
-               # .pandas("Getting df "+df.name)
                return df.get_full_df()
 
          def displayfunc(df, current_df, task_info):
@@ -451,16 +465,10 @@ class Window(QMainWindow, Ui_MainWindow):
                   self.tableView.resizeRowsToContents()
                # self.tableView.resizeColumnsToContents()
 
-         if self.dfs[self.current_df].invalidated:
-
-
-
-
-            self.add_task(Task(self, "compute df {}".format(self.dfs[self.current_df].name), 
-                               lambda df, current_df, task_info: True, displayfunc, computefunc, 
-                               {"df":self.dfs[self.current_df], "current_df": self.current_df}))
-         else:
-            displayfunc(self.dfs[self.current_df], self.current_df, None)
+         # if self.dfs[self.current_df].update_df():
+         self.add_task(Task(self, "compute df {}".format(self.dfs[self.current_df].name), 
+                              lambda df, current_df, task_info: True, displayfunc, computefunc, 
+                              {"df":self.dfs[self.current_df], "current_df": self.current_df}))
 
    def select_df(self, index):
       name = self.dfs[index].name
@@ -493,8 +501,8 @@ class Window(QMainWindow, Ui_MainWindow):
       for i in range(len(self.dfs)):
          if {k:v for k, v in setup_params.items() if k in self.dfs[i].metadata} != self.dfs[i].metadata:
             self.dfs[i].metadata = {k:v for k, v in setup_params.items() if k in self.dfs[i].metadata}
-            self.dfs[i].invalidated=True
-            self.dfs[i]._dataframe.invalidate_all()
+            # self.dfs[i].invalidated=True
+            # self.dfs[i]._dataframe.invalidate_all()
       if update_view:
          self.reload_setup_params_view()
 
@@ -524,11 +532,6 @@ class Window(QMainWindow, Ui_MainWindow):
             return True
          return False
       
-      
-      # min_i = min((i for i,j in indices if mfilter(df.iloc[i, j])), default=0)
-      # max_i = max((i for i,j in indices if mfilter(df.iloc[i, j])), default=0)
-      # min_j = min((j for i,j in indices if mfilter(df.iloc[i, j])), default=0)
-      # max_j = max((j for i,j in indices if mfilter(df.iloc[i, j])), default=0)
       def update():
          self.tableView.model().dataChanged.emit(
          self.tableView.model().createIndex(0, 0), 
@@ -548,27 +551,14 @@ class Window(QMainWindow, Ui_MainWindow):
                  update()
       task = Task(self, "compute", lambda task_info: True, lambda task_info: update(), run, {}, on_curr_thread=False)
       return task
-      # def compute(df, indices, __curr_task: Task):
-      #    for i in tqdm(indices):
-      #       __curr_task.curr +=1
-      #       for col in df.result_columns:
-      #          val = df[col].iat[i]
-      #          if isinstance(val, RessourceHandle):
-      #             val.get_result()
-      # return Task("compute", len(indices), compute, [], {"df": self.tableView.model()._dataframe, "indices":indices})
          
 
    def tab_close(self, i):
-      # print(self.result_tabs.children()[i].objectName())
-         # for j, t in enumerate(self.result_tabs.children()[0].children()):
-         #    print(j, t.objectName(), t.figs)
-         # self.result_tabs.children()[0].children()[i].figs={}
       self.result_tabs.removeTab(i)
 
    def on_computation_tab_clicked(self):
       if self.current_df is None:
          if len(self.dfs) == 0:logger.warning("No dfs")
-         # else: self.select_df(0)
          else:
             pass
 
