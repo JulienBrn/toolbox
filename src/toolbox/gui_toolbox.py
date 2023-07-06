@@ -68,6 +68,17 @@ class DataFrameModel(QtCore.QAbstractTableModel):
             #     print("Showing img")
             #     return val.image
             # else:
+            import numpy as np
+            if hasattr(val, "__len__") and not isinstance(val, str) and not isinstance(val, np.ndarray) and len(str(val)) > 100:
+                types = {str(type(t)).split(".")[-1].replace("class", "").strip("\' <>,") for t in val}
+                valtypestr = str(type(val)).replace('class', '').strip('\' <>,')
+                if len(types)==1:
+                    return f"{valtypestr}({len(val)}, {types.pop()})"
+                if len(types) <3:
+                    return f"{valtypestr}({len(val)}, {types})"
+                else:
+                    return f"{valtypestr}({len(val)})"
+            else:
                 return str(val)
         # elif role == DataFrameModel.DecorationRole:
         #     print("decoration")
