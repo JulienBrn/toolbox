@@ -36,7 +36,8 @@ class DataFrameModel(QtCore.QAbstractTableModel):
     def headerData(self, section: int, orientation: QtCore.Qt.Orientation, role: int = QtCore.Qt.DisplayRole):
         if role == QtCore.Qt.DisplayRole:
             if orientation == QtCore.Qt.Horizontal:
-                return str(self._dataframe.columns[section])
+                col = str(self._dataframe.columns[section])
+                return col if not col[0] == "_" else col[1:]
             else:
                 return str(self._dataframe.index[section])
         return QtCore.QVariant()

@@ -189,14 +189,17 @@ class GUIDataFrame:
          for t in other_dfs.values():
             t.tqdm = self.tqdm
          ret= self.compute_df(**kwargs)
+         if hasattr(self, "key_columns"):
+            ret = ret[self.key_columns + [col for col in ret.columns if not col in  self.key_columns]]
          logger.info("Done Computing df {}".format(self.name))
          return ret
       
       def mcompute_output_df(ret):
-         if "Discarded" in ret.columns:
-            return ret[ret["Discarded"]!=True].drop(columns=["Discarded"]).reset_index(drop=True)
+         dropped_cols = [col for col in ret.columns if col[0]=='_']
+         if "_Discarded" in ret.columns:
+            return ret[ret["_Discarded"]!=True].drop(columns=["_Discarded"]).reset_index(drop=True).drop(columns=dropped_cols)
          else:
-            return ret
+            return ret.drop(columns=dropped_cols)
       
       self._dataframe = df_ressource_manager.declare_computable_ressource(mcompute_df, {n:df._dataframe_out for n, df in other_dfs.items()}, df_loader, "Dataframe {}".format(self.name), save)
       self._dataframe_out = df_ressource_manager.declare_computable_ressource(mcompute_output_df, {"ret":self._dataframe}, df_loader, "Dataframe out {}".format(self.name), False)
@@ -435,6 +438,8 @@ class Window(QMainWindow, Ui_MainWindow):
             if self.current_df == current_df:
                try:
                   self.tableView.setModel(DataFrameModel(ndf.reset_index(drop=True)))
+                  if self.tableView.model().rowCount() < 500:
+                     self.tableView.resizeColumnsToContents()
                except BaseException as e:
                   display = [str(e), str(traceback.format_exc())]
                   if isinstance(ndf, toolbox.Error):
