@@ -273,3 +273,135 @@ class DictTreeModelFull(QAbstractItemModel):
             return str
         return QtCore.QVariant()
         return "data"
+    
+
+from toolbox.victor_stuff import Video
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QTableView, QMainWindow, QFileDialog, QMenu, QAction
+from PyQt5.QtGui import QIcon, QImage, QStandardItem, QStandardItemModel, QMovie, QCursor
+from PyQt5.QtCore import pyqtSlot, QItemSelectionModel, QModelIndex
+import PyQt5.QtWidgets as QtWidgets
+import PyQt5.QtGui as QtGui
+import PyQt5.QtCore as QtCore
+
+class GraphicsView(QtWidgets.QGraphicsView):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        # sizePolicy.setHorizontalStretch(0)
+        # sizePolicy.setVerticalStretch(0)
+        # sizePolicy.setHeightForWidth(self.sizePolicy().hasHeightForWidth())
+        # self.setSizePolicy(sizePolicy)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+
+class VideoPlayer(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.widget_6 = self
+        self.m_view = GraphicsView(self.widget_6)
+        self.m_scene = QtWidgets.QGraphicsScene(self.widget_6)
+        self.m_view.setScene(self.m_scene)
+        self.construct_player()
+        self.construct_scene()
+        self.timer = QtCore.QTimer()
+        self.vid = None
+        self.pushButton.released.connect(lambda: self.pause() if self.timer.isActive() else self.play())
+        
+        self.timer.timeout.connect(lambda: self.next_frame())
+
+    def construct_player(self):
+        self.verticalLayout_10 = QtWidgets.QVBoxLayout(self.widget_6)
+        self.verticalLayout_10.setSpacing(3)
+        self.verticalLayout_10.setContentsMargins(100, 100, 100, 100)
+        self.verticalLayout_10.addWidget(self.m_view)
+        self.horizontalSlider = QtWidgets.QSlider(self.widget_6)
+        self.horizontalSlider.setMinimumSize(QtCore.QSize(0, 0))
+        self.horizontalSlider.setOrientation(QtCore.Qt.Horizontal)
+        self.verticalLayout_10.addWidget(self.horizontalSlider)
+        self.widget_7 = QtWidgets.QWidget(self.widget_6)
+        self.horizontalLayout_5 = QtWidgets.QHBoxLayout(self.widget_7)
+        self.horizontalLayout_5.setContentsMargins(-1, 0, -1, 0)
+        spacerItem2 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.horizontalLayout_5.addItem(spacerItem2)
+        self.label_9 = QtWidgets.QLabel(self.widget_7)
+        self.horizontalLayout_5.addWidget(self.label_9)
+        self.spinBox = QtWidgets.QSpinBox(self.widget_7)
+        self.horizontalLayout_5.addWidget(self.spinBox)
+        self.label_10 = QtWidgets.QLabel(self.widget_7)
+        self.horizontalLayout_5.addWidget(self.label_10)
+        self.doubleSpinBox = QtWidgets.QDoubleSpinBox(self.widget_7)
+        self.horizontalLayout_5.addWidget(self.doubleSpinBox)
+        self.label_11 = QtWidgets.QLabel(self.widget_7)
+        self.horizontalLayout_5.addWidget(self.label_11)
+        self.doubleSpinBox_2 = QtWidgets.QDoubleSpinBox(self.widget_7)
+        self.doubleSpinBox_2.setSingleStep(0.05)
+        self.doubleSpinBox_2.setProperty("value", 1.0)
+        self.horizontalLayout_5.addWidget(self.doubleSpinBox_2)
+        spacerItem3 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.horizontalLayout_5.addItem(spacerItem3)
+        self.pushButton = QtWidgets.QPushButton(self.widget_7)
+        self.pushButton.setMinimumSize(QtCore.QSize(30, 0))
+        self.pushButton.setMaximumSize(QtCore.QSize(30, 16777215))
+        self.pushButton.setIconSize(QtCore.QSize(0, 0))
+        self.pushButton.setCheckable(False)
+        self.horizontalLayout_5.addWidget(self.pushButton)
+        self.verticalLayout_10.addWidget(self.widget_7)
+
+        self.label_9.setText("Frame")
+        self.label_10.setText("Time")
+        self.label_11.setText("Speed")
+        self.pushButton.setText("P")
+        
+
+    def construct_scene(self):
+        self.qpixmapitem = QtWidgets.QGraphicsPixmapItem()
+        self.m_scene.addItem(self.qpixmapitem)
+
+    def set_image(self, img):
+        import cv2
+        cvRGBImg = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        self.qimg = QtGui.QImage(cvRGBImg.data,cvRGBImg.shape[1], cvRGBImg.shape[0], QtGui.QImage.Format_RGB888)
+        self.pixmap = QtGui.QPixmap.fromImage(self.qimg)
+        self.qpixmapitem.setPixmap(self.pixmap)
+        
+        # self.m_view.fitInView(self.m_scene.sceneRect())
+        self.m_scene.update()
+        self.m_view.setSceneRect(-100, -100, 2000, 2000)
+        # print(self.qpixmapitem.boundingRect())
+        # print(self.m_scene.sceneRect())
+        # print(self.m_view.setFixedSize(500, 500))
+        self.m_view.fitInView(0,0, cvRGBImg.shape[1], cvRGBImg.shape[0], QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        # self.m_view.fitInView(-100, -100, 2000, 2000)
+        self.m_view.update()
+        # self.m_view.fitInView(0,0, cvRGBImg.shape[0], cvRGBImg.shape[1])
+
+    def set_video(self, vid):
+        self.pause()
+        self.vid = vid.copy()
+        self.set_image(vid[0])
+        self.vid.__iter__()
+        self.horizontalSlider.setMaximum(self.vid.nb_frames)
+        self.spinBox.setMaximum(self.vid.nb_frames)
+        self.doubleSpinBox.setMaximum(int(self.vid.nb_frames)*self.vid.fps)
+        # self.timer.timeout.connect(next_frame)
+        # self.timer.start(int(1000/vid.fps))
+    def next_frame(self):
+        try:
+            self.set_image(self.vid.__next__())
+        except StopIteration:
+            self.vid.__iter__()
+            self.set_image(self.vid.__next__())
+        self.horizontalSlider.setValue(self.vid.iterpos)
+        self.spinBox.setValue(self.vid.iterpos)
+        self.doubleSpinBox.setValue(self.vid.iterpos/self.vid.fps)
+    def play(self):
+        self.timer.start(int(1000/self.vid.fps))
+        self.spinBox.setDisabled(True)
+        self.doubleSpinBox.setDisabled(True)
+        self.pushButton.setText("Pause")
+
+    def pause(self):
+        self.timer.stop()
+        self.spinBox.setDisabled(False)
+        self.doubleSpinBox.setDisabled(False)
+        self.pushButton.setText("Play")

@@ -9,6 +9,6 @@ from toolbox.pipeline import mk_block, get_columns, save_columns, mk_block_old
 from toolbox.ressource_manager import get, Error, json_loader, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, Manager, RessourceHandle, RessourceLoader, execute_as_subprocess
 from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape
 from toolbox.profiling import Profile
-from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel
+from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel, VideoPlayer
 from toolbox.gui import GUIDataFrame, Window, mk_result_tab, export_fig
 from toolbox.victor_stuff import Line, Rectangle, Video, Image, rectangle_loader, video_loader
