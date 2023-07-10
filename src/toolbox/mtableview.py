@@ -44,6 +44,10 @@ class MTableView(QTableView):
               export_vid = QAction('export video', self)
               export_vid.triggered.connect(lambda: self.exportVid(item_selected))
               self.menu.addAction(export_vid)
+
+              view_vid = QAction('view video', self)
+              view_vid.triggered.connect(lambda: self.viewVid(item_selected))
+              self.menu.addAction(view_vid)
            if item_selected.is_saved_on_disk():
               open_in_file_manager = QAction('open in file manager', self)
               open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
@@ -80,6 +84,14 @@ class MTableView(QTableView):
        path, ok = QFileDialog.getSaveFileName(self, caption="Save video to", filter="*.mp4")
        if ok:
           vid.save(path)
+
+    def viewVid(self, video: RessourceHandle):
+       vid = video.get_result()
+       win = self.window()
+       v = toolbox.VideoPlayer()
+       win.result_tabs.addTab(v, "Video")
+       v.set_video(vid)
+       win.menu_tabs.setCurrentWidget(win.result_tab)
 
     def message_box(self, msg):
        b = QMessageBox()

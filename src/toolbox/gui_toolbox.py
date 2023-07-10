@@ -359,19 +359,23 @@ class VideoPlayer(QtWidgets.QWidget):
 
     def set_image(self, img):
         import cv2
+        # logger.warning(img.shape)
         cvRGBImg = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        self.qimg = QtGui.QImage(cvRGBImg.data,cvRGBImg.shape[1], cvRGBImg.shape[0], QtGui.QImage.Format_RGB888)
+        # logger.warning(cvRGBImg.shape)
+        self.qimg = QtGui.QImage(cvRGBImg.data,cvRGBImg.shape[1], cvRGBImg.shape[0], 3*cvRGBImg.shape[1], QtGui.QImage.Format_RGB888)
         self.pixmap = QtGui.QPixmap.fromImage(self.qimg)
         self.qpixmapitem.setPixmap(self.pixmap)
         
         # self.m_view.fitInView(self.m_scene.sceneRect())
         self.m_scene.update()
-        self.m_view.setSceneRect(-100, -100, 2000, 2000)
+        # self.m_view.setSceneRect(-100, -100, 2000, 2000)
         # print(self.qpixmapitem.boundingRect())
         # print(self.m_scene.sceneRect())
         # print(self.m_view.setFixedSize(500, 500))
         self.m_view.fitInView(0,0, cvRGBImg.shape[1], cvRGBImg.shape[0], QtCore.Qt.AspectRatioMode.KeepAspectRatio)
         # self.m_view.fitInView(-100, -100, 2000, 2000)
+        self.m_view.update()
+        self.m_scene.update()
         self.m_view.update()
         # self.m_view.fitInView(0,0, cvRGBImg.shape[0], cvRGBImg.shape[1])
 
