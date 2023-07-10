@@ -48,6 +48,12 @@ class MTableView(QTableView):
               view_vid = QAction('view video', self)
               view_vid.triggered.connect(lambda: self.viewVid(item_selected))
               self.menu.addAction(view_vid)
+
+           if item_selected.get_loader() == toolbox.mplo_loader:
+              view_fig = QAction('view figure', self)
+              view_fig.triggered.connect(lambda: self.viewFig(item_selected))
+              self.menu.addAction(view_fig)
+
            if item_selected.is_saved_on_disk():
               open_in_file_manager = QAction('open in file manager', self)
               open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
@@ -93,6 +99,13 @@ class MTableView(QTableView):
        v.set_video(vid)
        win.menu_tabs.setCurrentWidget(win.result_tab)
        win.result_tabs.setCurrentWidget(v)
+
+    def viewFig(self, figure: RessourceHandle):
+       win = self.window()
+       fig: toolbox.MatPlotLibObject = figure.get_result()
+       t = fig.show(win.result_tabs)
+       win.menu_tabs.setCurrentWidget(win.result_tab)
+       win.result_tabs.setCurrentWidget(t)
 
     def message_box(self, msg):
        b = QMessageBox()

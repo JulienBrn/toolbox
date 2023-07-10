@@ -270,3 +270,44 @@ def mk_rectangle_loader() -> RessourceLoader:
 
 
 rectangle_loader = mk_loader_with_error(mk_rectangle_loader())
+
+import collections.abc
+class MatPlotLibObject:
+    def __init__(self, show_func, n=None, subplots: Union[Tuple[int, int], List[Tuple[int, int]]]=(1, 1), text="mplo"):
+        if len(subplots) > 0 and isinstance(subplots[0], collections.abc.Sequence):
+            if not n is None and len(subplots!=n):
+                raise ValueError("Subplot length does not match number of requested figures")
+            self.subplots = subplots
+        elif not n is None: 
+            self.subplots = [subplots for i in range(n)]
+        else: 
+            self.subplots = [subplots for i in range(1)]
+
+        for s in self.subplots:
+            if not len(s) == 2:
+                raise ValueError("Subplot requires two dimensions")
+            
+        self.show_func = show_func
+        self.text = text
+
+    def show(self, rtab):
+        from toolbox import mk_result_tab
+        for n, s in enumerate(self.subplots):
+            tab, mpls = mk_result_tab(s[0], s[1])
+            import PyQt5.QtWidgets as QtWidgets
+            # tab = QtWidgets.QWidget()
+            for i in range(s[0]):
+                for j in range(s[1]):
+                    self.show_func(n, i, j, mpls[i, j].canvas.ax)
+            rtab.addTab(tab, self.text)
+        return tab
+
+
+def mk_mplo_loader() -> RessourceLoader:
+    def save(path, r: Rectangle):
+        raise NotImplementedError("mplo loader save")
+    def load(path):
+        raise NotImplementedError("mplo loader load")
+    return RessourceLoader(".mplo", load, save)
+
+mplo_loader = mk_loader_with_error(mk_mplo_loader())
