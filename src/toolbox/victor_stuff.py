@@ -69,7 +69,6 @@ class Video(collections.abc.Sequence):
                 raise RuntimeError(f"Unable to read frame. Read returned: {ret}")
             else:
                 mret =  self._transform(frame, pos)
-                logger.info(mret.shape)
                 return mret
             
         # if isinstance(pos, slice):
@@ -95,7 +94,6 @@ class Video(collections.abc.Sequence):
         if self.iterpos < self.nb_frames:
             ret, frame = self.vid.read()
             res = self._transform(frame, self.iterpos)
-            logger.info(res.shape)
             self.iterpos+=1
             return res
         else:
@@ -126,7 +124,6 @@ class Video(collections.abc.Sequence):
             vid = self
             
         if isinstance(crop, Rectangle):
-            logger.info(f"old vid width {vid.width} old vid height {vid.width}, new width {crop.width}, new height {crop.height}")
             vid.width = crop.width
             vid.height = crop.height
             vid.transformations.append(("map", lambda frame: frame[crop.start_y:crop.end_y, crop.start_x:crop.end_x]))

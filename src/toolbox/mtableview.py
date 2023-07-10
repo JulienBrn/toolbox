@@ -92,6 +92,7 @@ class MTableView(QTableView):
        win.result_tabs.addTab(v, "Video")
        v.set_video(vid)
        win.menu_tabs.setCurrentWidget(win.result_tab)
+       win.result_tabs.setCurrentWidget(v)
 
     def message_box(self, msg):
        b = QMessageBox()

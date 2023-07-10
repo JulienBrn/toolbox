@@ -367,26 +367,31 @@ class VideoPlayer(QtWidgets.QWidget):
         self.qpixmapitem.setPixmap(self.pixmap)
         
         # self.m_view.fitInView(self.m_scene.sceneRect())
-        self.m_scene.update()
+        # self.m_scene.update()
         # self.m_view.setSceneRect(-100, -100, 2000, 2000)
         # print(self.qpixmapitem.boundingRect())
         # print(self.m_scene.sceneRect())
         # print(self.m_view.setFixedSize(500, 500))
         self.m_view.fitInView(0,0, cvRGBImg.shape[1], cvRGBImg.shape[0], QtCore.Qt.AspectRatioMode.KeepAspectRatio)
         # self.m_view.fitInView(-100, -100, 2000, 2000)
-        self.m_view.update()
-        self.m_scene.update()
-        self.m_view.update()
+        # self.m_view.update()
+        # self.m_scene.update()
+        # self.m_view.update()
         # self.m_view.fitInView(0,0, cvRGBImg.shape[0], cvRGBImg.shape[1])
 
     def set_video(self, vid):
         self.pause()
         self.vid = vid.copy()
-        self.set_image(vid[0])
+        # self.set_image(vid[0])
+        # self.set_image(vid[1])
         self.vid.__iter__()
+        
         self.horizontalSlider.setMaximum(self.vid.nb_frames)
         self.spinBox.setMaximum(self.vid.nb_frames)
         self.doubleSpinBox.setMaximum(int(self.vid.nb_frames)*self.vid.fps)
+        
+        self.play()
+        # self.timer_stupid = QtCore.QTimer()
         # self.timer.timeout.connect(next_frame)
         # self.timer.start(int(1000/vid.fps))
     def next_frame(self):
@@ -398,6 +403,7 @@ class VideoPlayer(QtWidgets.QWidget):
         self.horizontalSlider.setValue(self.vid.iterpos)
         self.spinBox.setValue(self.vid.iterpos)
         self.doubleSpinBox.setValue(self.vid.iterpos/self.vid.fps)
+
     def play(self):
         self.timer.start(int(1000/self.vid.fps))
         self.spinBox.setDisabled(True)
