@@ -227,7 +227,7 @@ class GUIDataFrame:
       return updated
       # return self._dataframe.get_result()
    
-   def compute_df(self):
+   def compute_df(self, **kwargs):
       raise NotImplementedError("Abstract method compute_df of GUIDataFrame")
 
 class Task(QtCore.QObject):

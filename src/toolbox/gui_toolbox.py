@@ -68,6 +68,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
             #     print("Showing img")
             #     return val.image
             # else:
+            
             import numpy as np
             if hasattr(val, "__len__") and not isinstance(val, str) and not isinstance(val, np.ndarray) and len(str(val)) > 100:
                 types = {str(type(t)).split(".")[-1].replace("class", "").strip("\' <>,") for t in val}
