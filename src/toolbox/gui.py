@@ -210,7 +210,7 @@ class GUIDataFrame:
       def mcompute_output_df(ret):
          dropped_cols = [col for col in ret.columns if col[0]=='_']
          if "_Discarded" in ret.columns:
-            return ret[ret["_Discarded"]!=True].drop(columns=["_Discarded"]).reset_index(drop=True).drop(columns=dropped_cols)
+            return ret[ret["_Discarded"]!=True].reset_index(drop=True).drop(columns=dropped_cols)
          else:
             return ret.drop(columns=dropped_cols)
       

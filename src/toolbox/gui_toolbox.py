@@ -87,8 +87,8 @@ class DataFrameModel(QtCore.QAbstractTableModel):
         elif role == DataFrameModel.DtypeRole:
             return dt
         elif role==QtCore.Qt.BackgroundRole:
-            if "Discarded" in self._dataframe.columns and self._dataframe["Discarded"].iat[row] == True:
-                return QtGui.QColor('red')
+            if "_Discarded" in self._dataframe.columns and self._dataframe["_Discarded"].iat[row] == True:
+                return QtGui.QColor(255, 0, 0, 50)
 
         return QtCore.QVariant()
 
