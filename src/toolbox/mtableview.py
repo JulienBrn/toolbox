@@ -82,7 +82,7 @@ class MTableView(QTableView):
           if isinstance(item_selected, RessourceHandle):
             if item_selected.is_saved_on_disk():
                 open_in_file_manager = QAction('open in file manager', self)
-                open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(items))
+                open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
                 self.menu.addAction(open_in_file_manager)
 
         viewRow.triggered.connect(lambda: self.viewRowSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
