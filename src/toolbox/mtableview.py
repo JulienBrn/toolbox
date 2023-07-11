@@ -112,10 +112,17 @@ class MTableView(QTableView):
                        "['file://{}']".format(str(path.absolute())), ""])
 
     def exportVid(self, videos: List[RessourceHandle]):
-       vid = [video.get_result() for video in videos][0]
-       path, ok = QFileDialog.getSaveFileName(self, caption="Save video to", filter="*.mp4")
-       if ok:
-          vid.save(path)
+       vid = [toolbox.get(video) for video in videos]
+       if len(vid) == 1:
+        vid = vid[0]
+        path, ok = QFileDialog.getSaveFileName(self, caption="Save video to", filter="*.mp4")
+        if ok:
+            vid.save(path)
+       elif len(vid) > 1:
+          path = QFileDialog.getExistingDirectory(self, caption="Save video to")
+          if not path == "":
+            for i, v in enumerate(vid):
+              v.save(str(pathlib.Path(path)/ f"video_{i}.mp4"))
 
     def viewVid(self, videos: RessourceHandle):
        for video in videos:
