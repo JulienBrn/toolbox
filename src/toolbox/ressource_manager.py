@@ -92,11 +92,11 @@ def mk_json_loader():
 def mk_pickle_loader():
   import pickle
   def load(path):
-    with open(str(path), "r") as fp:
+    with open(str(path), "rb") as fp:
       return pickle.load(fp)
     
   def save(path, d):
-    with open(str(path), "w") as fp:
+    with open(str(path), "wb") as fp:
       pickle.dump(d , fp) 
   return RessourceLoader(".pickle", load, save)
 
