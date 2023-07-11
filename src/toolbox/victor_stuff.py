@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Tuple, List, Union
 import numpy as np, pandas as pd, tqdm, logging
-import collections
+import collections, pathlib
 from toolbox.ressource_manager import mk_loader_with_error, mk_json_loader, RessourceLoader
 
 logger = logging.getLogger(__name__)
@@ -10,27 +10,44 @@ Image = np.ndarray
 
 class Video(collections.abc.Sequence):
     def __init__(self, path=None, copy: Video=None):
+        self.is_from_img_list=False
         if not copy is None:
             self.vid = copy.vid
             self.transformations=copy.transformations.copy()
             self.width=copy.width
             self.height=copy.height
             self.source_path = copy.source_path
-        elif not path is None:
+            self.is_from_img_list=copy.is_from_img_list
+            self.img_list = [img for img in copy.img_list] if not copy.img_list is None else None
+        elif isinstance(path, str) or isinstance(path, pathlib.Path):
             import cv2
             self.vid = cv2.VideoCapture(str(path))
             self.source_path = str(path)
             self.transformations=[]
             self.width = self[0].shape[1]
             self.height = self[0].shape[0]
+            self.is_from_img_list=False
+            self.img_list = None
+        else:
+            self.vid= None
+            self.source_path = "from imgs"
+            self.is_from_img_list=True
+            self.img_list = path
+            self.width = self[0].shape[1]
+            self.height = self[0].shape[0]
+            self.transformations=[]
 
     @property
     def fps(self):
+        if self.is_from_img_list:
+            return 30
         import cv2
         return self.vid.get(cv2.CAP_PROP_FPS) 
     
     @property
     def nb_frames(self):
+        if self.is_from_img_list:
+            return len(self.img_list)
         import cv2
         return int(self.vid.get(cv2.CAP_PROP_FRAME_COUNT))
     
@@ -63,6 +80,8 @@ class Video(collections.abc.Sequence):
         if isinstance(pos, int):
             if pos >= self.nb_frames:
                 raise IndexError(f"Video has only {self.nb_frames} frames. Trying to access frame {pos}")
+            if self.is_from_img_list:
+                return self.img_list[pos]
             self.vid.set(cv2.CAP_PROP_POS_FRAMES, pos)
             ret, frame =  self.vid.read()
             if not ret is True:
@@ -86,13 +105,17 @@ class Video(collections.abc.Sequence):
         
     def __iter__(self):
         import cv2
-        self.vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        if not self.is_from_img_list:
+            self.vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
         self.iterpos=0
         return self
     
     def __next__(self):
         if self.iterpos < self.nb_frames:
-            ret, frame = self.vid.read()
+            if self.is_from_img_list:
+                ret, frame = None, self.img_list[self.iterpos]
+            else:
+                ret, frame = self.vid.read()
             res = self._transform(frame, self.iterpos)
             self.iterpos+=1
             return res
@@ -133,7 +156,7 @@ class Video(collections.abc.Sequence):
             vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
         return vid
     
-    def add_text(self, text: Union[str, List[str]], position: Tuple[int, int] = None, color = (255, 0, 0), copy=True):
+    def add_text(self, text: Union[str, List[str]], position: Tuple[int, int] = None, color = (0, 0, 255), copy=True):
         import cv2
         if copy:
             vid = self.copy()
@@ -141,12 +164,12 @@ class Video(collections.abc.Sequence):
             vid = self
             
         if position is None:
-            position = (self.width/10, self.height/10)
+            position = (int(self.width/10), int(self.height/10))
         font = cv2.FONT_HERSHEY_SIMPLEX
         if isinstance(position, str):
-            vid.transformations.append(("map", lambda frame: cv2.putText(frame.copy(), text, position, font, 2, color, 1, cv2.LINE_AA)))
+            vid.transformations.append(("map", lambda frame: cv2.putText(frame.copy(), text, position, font, 2, color, 2, cv2.LINE_AA)))
         else:
-            vid.transformations.append(("imap", lambda i, frame: cv2.putText(frame.copy(), text[i], position, font, 2, color, 1, cv2.LINE_AA)))
+            vid.transformations.append(("imap", lambda i, frame: cv2.putText(frame.copy(), text[i], position, font, 2, color, 2, cv2.LINE_AA)))
         return vid
 
     # def get_frame(self, f: int = None):
@@ -173,6 +196,8 @@ class Video(collections.abc.Sequence):
         out.release()
 
     def _transform(self, frame: Image, i):
+        if frame is None:
+            raise BaseException("No frame")
         if self.transformations is []:
             return frame
         f = frame.copy()

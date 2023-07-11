@@ -19,8 +19,8 @@ import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QTableView, QMainWindow, QFileDialog, QMenu, QAction, QMessageBox
 from PyQt5.QtGui import QIcon, QImage, QStandardItem, QStandardItemModel, QMovie, QCursor
 from PyQt5.QtCore import pyqtSlot, QItemSelectionModel, QModelIndex
-import toolbox
-from typing import List
+import toolbox, collections.abc
+from typing import List, Any
 
 
 class MTableView(QTableView):
@@ -39,25 +39,51 @@ class MTableView(QTableView):
         viewRow = QAction('View row', self)
         showtype = QAction('show type', self)
         
-        if len(selection) == 1 and isinstance(item_selected, RessourceHandle):
-           if item_selected.get_loader() == toolbox.video_loader:
+        if len(selection) == 1:
+          def compute_subtype(i):
+            if isinstance(i, RessourceHandle):
+              if i.is_in_memory():
+                 return compute_subtype(i.get_result())
+              loader = i.get_loader()
+              return (toolbox.Video if loader == toolbox.video_loader else toolbox.MatPlotLibObject if loader == toolbox.mplo_loader else RessourceHandle, [i])
+            elif isinstance(i, toolbox.Video):
+               return (toolbox.Video, [i])
+            elif isinstance(i, toolbox.MatPlotLibObject):
+               return (toolbox.Video, [i])
+            elif isinstance(i, collections.abc.Sequence):
+                print(type(i))
+                rec = [compute_subtype(e)  for e in list(i)]
+                print("Rec: ", rec)
+                rec = [(t, val) for t, l in rec for val in l]
+                types = {t  for t, val in rec}
+                if len(types) == 1:
+                    return (types.pop(), [val for t, val in rec])
+                else:
+                   return (Any, [])
+            else:
+               return (Any, [])
+                
+          t, items = compute_subtype(item_selected)
+
+          if t == toolbox.Video:
               export_vid = QAction('export video', self)
-              export_vid.triggered.connect(lambda: self.exportVid(item_selected))
+              export_vid.triggered.connect(lambda: self.exportVid(items))
               self.menu.addAction(export_vid)
 
-              view_vid = QAction('view video', self)
-              view_vid.triggered.connect(lambda: self.viewVid(item_selected))
+              view_vid = QAction('view videos', self)
+              view_vid.triggered.connect(lambda: self.viewVid(items))
               self.menu.addAction(view_vid)
 
-           if item_selected.get_loader() == toolbox.mplo_loader:
-              view_fig = QAction('view figure', self)
-              view_fig.triggered.connect(lambda: self.viewFig(item_selected))
+          if t == toolbox.MatPlotLibObject:
+              view_fig = QAction('view figures', self)
+              view_fig.triggered.connect(lambda: self.viewFig(items))
               self.menu.addAction(view_fig)
 
-           if item_selected.is_saved_on_disk():
-              open_in_file_manager = QAction('open in file manager', self)
-              open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
-              self.menu.addAction(open_in_file_manager)
+          if isinstance(item_selected, RessourceHandle):
+            if item_selected.is_saved_on_disk():
+                open_in_file_manager = QAction('open in file manager', self)
+                open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(items))
+                self.menu.addAction(open_in_file_manager)
 
         viewRow.triggered.connect(lambda: self.viewRowSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         computeAction.triggered.connect(lambda: self.computeSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
@@ -85,27 +111,29 @@ class MTableView(QTableView):
                        "--method", "org.freedesktop.FileManager1.ShowItems", 
                        "['file://{}']".format(str(path.absolute())), ""])
 
-    def exportVid(self, video: RessourceHandle):
-       vid = video.get_result()
+    def exportVid(self, videos: List[RessourceHandle]):
+       vid = [video.get_result() for video in videos][0]
        path, ok = QFileDialog.getSaveFileName(self, caption="Save video to", filter="*.mp4")
        if ok:
           vid.save(path)
 
-    def viewVid(self, video: RessourceHandle):
-       vid = video.get_result()
-       win = self.window()
-       v = toolbox.VideoPlayer()
-       win.result_tabs.addTab(v, "Video")
-       v.set_video(vid)
-       win.menu_tabs.setCurrentWidget(win.result_tab)
-       win.result_tabs.setCurrentWidget(v)
+    def viewVid(self, videos: RessourceHandle):
+       for video in videos:
+        vid = toolbox.get(video)
+        win = self.window()
+        v = toolbox.VideoPlayer()
+        win.result_tabs.addTab(v, "Video")
+        v.set_video(vid)
+        win.menu_tabs.setCurrentWidget(win.result_tab)
+        win.result_tabs.setCurrentWidget(v)
 
-    def viewFig(self, figure: RessourceHandle):
-       win = self.window()
-       fig: toolbox.MatPlotLibObject = figure.get_result()
-       t = fig.show(win.result_tabs)
-       win.menu_tabs.setCurrentWidget(win.result_tab)
-       win.result_tabs.setCurrentWidget(t)
+    def viewFig(self, figures: RessourceHandle):
+       for figure in figures:
+        win = self.window()
+        fig: toolbox.MatPlotLibObject = toolbox.get(figure)
+        t = fig.show(win.result_tabs)
+        win.menu_tabs.setCurrentWidget(win.result_tab)
+        win.result_tabs.setCurrentWidget(t)
 
     def message_box(self, msg):
        b = QMessageBox()

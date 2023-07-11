@@ -68,7 +68,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
             #     print("Showing img")
             #     return val.image
             # else:
-            
+
             import numpy as np
             if hasattr(val, "__len__") and not isinstance(val, str) and not isinstance(val, np.ndarray) and len(str(val)) > 100:
                 types = {str(type(t)).split(".")[-1].replace("class", "").strip("\' <>,") for t in val}
@@ -309,6 +309,13 @@ class VideoPlayer(QtWidgets.QWidget):
         self.pushButton.released.connect(lambda: self.pause() if self.timer.isActive() else self.play())
         
         self.timer.timeout.connect(lambda: self.next_frame())
+        self.speed = self.doubleSpinBox_2.value()
+        self.doubleSpinBox_2.valueChanged.connect(lambda ns: self._set_speed(ns))
+
+    def _set_speed(self, ns):
+        self.speed = ns
+        if not self.vid is None:
+            self.timer.setInterval(int(1000/(self.vid.fps*self.speed)))
 
     def construct_player(self):
         self.verticalLayout_10 = QtWidgets.QVBoxLayout(self.widget_6)
@@ -337,6 +344,8 @@ class VideoPlayer(QtWidgets.QWidget):
         self.doubleSpinBox_2 = QtWidgets.QDoubleSpinBox(self.widget_7)
         self.doubleSpinBox_2.setSingleStep(0.05)
         self.doubleSpinBox_2.setProperty("value", 1.0)
+        self.doubleSpinBox_2.setDecimals(3)
+        self.doubleSpinBox_2.setMinimum(0.001)
         self.horizontalLayout_5.addWidget(self.doubleSpinBox_2)
         spacerItem3 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout_5.addItem(spacerItem3)
@@ -406,7 +415,7 @@ class VideoPlayer(QtWidgets.QWidget):
         self.doubleSpinBox.setValue(self.vid.iterpos/self.vid.fps)
 
     def play(self):
-        self.timer.start(int(1000/self.vid.fps))
+        self.timer.start(int(1000/(self.vid.fps*self.speed)))
         self.spinBox.setDisabled(True)
         self.doubleSpinBox.setDisabled(True)
         self.pushButton.setText("Pause")

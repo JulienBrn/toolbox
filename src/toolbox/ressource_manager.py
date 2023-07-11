@@ -89,6 +89,28 @@ def mk_json_loader():
 
   return RessourceLoader(".json", load, save)
 
+def mk_pickle_loader():
+  import pickle
+  def load(path):
+    with open(str(path), "r") as fp:
+      return pickle.load(fp)
+    
+  def save(path, d):
+    with open(str(path), "w") as fp:
+      pickle.dump(d , fp) 
+  return RessourceLoader(".pickle", load, save)
+
+def mk_no_loader():
+  import pickle
+  def load(path):
+    raise NotImplementedError("No loader load called")
+    
+  def save(path, d):
+   raise NotImplementedError("No loader save called")
+  
+  return RessourceLoader(".none", load, save)
+
+
 class Error:
   def __init__(self, e, tb=None):
     self.e = e
@@ -128,6 +150,8 @@ float_loader = mk_loader_with_error(mk_float_loader())
 matlab_loader = mk_loader_with_error(mk_matlab_loader())
 matlab73_loader = mk_loader_with_error(mk_matlab73_loader())
 json_loader = mk_loader_with_error(mk_json_loader())
+pickle_loader = mk_loader_with_error(mk_pickle_loader())
+no_loader = mk_no_loader()
 
 
 
