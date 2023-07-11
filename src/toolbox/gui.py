@@ -301,7 +301,7 @@ class Task(QtCore.QObject):
          self.process.terminate()
 
       
-
+import traceback
 
 class TaskThread(QThread):
    def __init__(self, f, kw, err, warn, progress):
@@ -319,7 +319,9 @@ class TaskThread(QThread):
       except KeyboardInterrupt as e:
          raise e
       except BaseException as e:
-         logger.error("error while computing: {}".format(e))
+         tb = traceback.format_exc()
+         logger.error("error while computing: {}.\nTraceback is\n{}".format(e, tb))
+         self.res = None
          self.err.append(e)
 
 

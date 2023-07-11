@@ -132,6 +132,24 @@ class Video(collections.abc.Sequence):
             vid.height = crop["end_y"].iat[0] - crop["start_y"].iat[0]
             vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
         return vid
+    
+    def add_text(self, text: Union[str, List[str]], position: Tuple[int, int] = None, copy=True):
+        if copy:
+            vid = self.copy()
+        else:
+            vid = self
+            
+        if position is None:
+            position = (self.width/10, self.height/10)
+        if isinstance(crop, Rectangle):
+            vid.width = crop.width
+            vid.height = crop.height
+            vid.transformations.append(("map", lambda frame: frame[crop.start_y:crop.end_y, crop.start_x:crop.end_x]))
+        if isinstance(crop, pd.DataFrame):
+            vid.width = crop["end_x"].iat[0] - crop["start_x"].iat[0]
+            vid.height = crop["end_y"].iat[0] - crop["start_y"].iat[0]
+            vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
+        return vid
 
     # def get_frame(self, f: int = None):
     #     if f is None:
