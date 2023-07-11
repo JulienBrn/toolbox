@@ -133,7 +133,8 @@ class Video(collections.abc.Sequence):
             vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
         return vid
     
-    def add_text(self, text: Union[str, List[str]], position: Tuple[int, int] = None, copy=True):
+    def add_text(self, text: Union[str, List[str]], position: Tuple[int, int] = None, color = (255, 0, 0), copy=True):
+        import cv2
         if copy:
             vid = self.copy()
         else:
@@ -141,14 +142,11 @@ class Video(collections.abc.Sequence):
             
         if position is None:
             position = (self.width/10, self.height/10)
-        if isinstance(crop, Rectangle):
-            vid.width = crop.width
-            vid.height = crop.height
-            vid.transformations.append(("map", lambda frame: frame[crop.start_y:crop.end_y, crop.start_x:crop.end_x]))
-        if isinstance(crop, pd.DataFrame):
-            vid.width = crop["end_x"].iat[0] - crop["start_x"].iat[0]
-            vid.height = crop["end_y"].iat[0] - crop["start_y"].iat[0]
-            vid.transformations.append(("imap", lambda i, frame: frame[crop["start_y"].iat[i]:crop["end_y"].iat[i], crop["start_x"].iat[i]:crop["end_x"].iat[i]]))
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        if isinstance(position, str):
+            vid.transformations.append(("map", lambda frame: cv2.putText(frame.copy(), text, position, font, 2, color, 1, cv2.LINE_AA)))
+        else:
+            vid.transformations.append(("imap", lambda i, frame: cv2.putText(frame.copy(), text[i], position, font, 2, color, 1, cv2.LINE_AA)))
         return vid
 
     # def get_frame(self, f: int = None):
