@@ -316,7 +316,8 @@ class Manager:
       ressource.remove_from_memory()
       ressource.remove_from_disk()
     for id,rec in self.d.items():
-      if rec.computer and ressource in rec.computer.params.values():
+      logger.debug(type(rec.computer))
+      if rec.computer and (ressource in rec.computer.params.values()):
         rec.invalidate_all()
 
   def is_in_memory(self, id) -> bool: 
