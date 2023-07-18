@@ -690,8 +690,9 @@ class Window(QMainWindow, Ui_MainWindow):
          except BaseException as e:
             logger.error(e)
 
-   def load_config(self):
-      path, ok = QFileDialog.getOpenFileName(self, caption="Setup parameters to load from", filter="*.json")
+   def load_config(self, path=None):
+      if path is None:
+         path, ok = QFileDialog.getOpenFileName(self, caption="Setup parameters to load from", filter="*.json")
       try:
          self.set_setup_params(toolbox.json_loader.load(path))
       except:
