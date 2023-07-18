@@ -18,7 +18,7 @@
     <item>
      <widget class="QTabWidget" name="menu_tabs">
       <property name="currentIndex">
-       <number>2</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="setup_tab">
        <attribute name="title">
@@ -159,6 +159,13 @@
                 <widget class="QPushButton" name="export_btn">
                  <property name="text">
                   <string>Export</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="reload_df_btn">
+                 <property name="text">
+                  <string>Reload</string>
                  </property>
                 </widget>
                </item>
@@ -552,7 +559,7 @@
   <customwidget>
    <class>MTableView</class>
    <extends>QTableView</extends>
-   <header>analysisGUI.mtableview.h</header>
+   <header>toolbox.mtableview.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

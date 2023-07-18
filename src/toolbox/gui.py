@@ -225,6 +225,8 @@ class GUIDataFrame:
       if updated:
          logger.info(f"Updated dataframe {self.name} Metadata now is\n{self.metadata}")
       return updated
+   def invalidate(self):
+      self._dataframe.invalidate_all()
       # return self._dataframe.get_result()
    
    def compute_df(self, **kwargs):
@@ -401,6 +403,13 @@ class Window(QMainWindow, Ui_MainWindow):
       self.menu_tabs.currentChanged.connect(lambda index: self.reload_from_selection() if index==1 else None)
       self.dataframe_list.clicked.connect(lambda index: self.reload_from_selection())
       self.result_tabs.tabCloseRequested.connect(lambda i: self.tab_close(i))
+      self.reload_df_btn.clicked.connect(lambda: self.reload_curr_df())
+      self.export_params.clicked.connect(lambda: self.export_config())
+      self.load_params.clicked.connect(lambda: self.load_config())
+
+   def reload_curr_df(self):
+      self.dfs[self.current_df].invalidate()
+      self.reload_from_selection()
 
    def initialize_nice_gui(self):
       self.tableView.setSortingEnabled(True)
@@ -681,7 +690,21 @@ class Window(QMainWindow, Ui_MainWindow):
          except BaseException as e:
             logger.error(e)
 
+   def load_config(self):
+      path, ok = QFileDialog.getOpenFileName(self, caption="Setup parameters to load from", filter="*.json")
+      try:
+         self.set_setup_params(toolbox.json_loader.load(path))
+      except:
+         logger.error("Impossible to load configuration file")
 
+   def export_config(self):
+      df: pd.DataFrame = self.setup_params_tree.model().get_values().set_index('Parameter Name')
+      setup_params = df['Parameter Value'].to_dict()
+      path, ok = QFileDialog.getSaveFileName(self, caption="Save setup parameters to", filter="*.json")
+      try:
+         toolbox.json_loader.save(path, setup_params)
+      except BaseException as e:
+         logger.error("Impossible to save configuration :{}\n".format(e))
    #  def __init__(self, parent=None):
    #    super().__init__(parent)
    #    self.setupUi(self)

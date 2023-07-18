@@ -87,3 +87,20 @@ def dataframe_reshape(df: pd.DataFrame, new_type_name, reshape: pd.DataFrame):
   ret = pd.concat(dfs, ignore_index=True)
   ret.drop(columns=reshape.values.flatten(), inplace=True)
   return ret
+
+def as_numpy_subselect(f, df, ignore_cols = None, out_cols=None, in_cols=None, apply_on=None):
+  if ignore_cols is None and not in_cols is None:
+    ignore_cols = [col for col in df.columns if not col in in_cols]
+  r = f(df.drop(ignore_cols))
+  if apply_on is None:
+    r =[r]
+    apply_on =0
+
+  x = r[apply_on]
+  if callable(out_cols):
+    out_cols = [out_cols(i) for i in range(x.shape[1])]
+  elif isinstance(out_cols, str):
+    out_cols = [out_cols.format(i) for i in range(x.shape[1])]
+  d = pd.DataFrame(x, columns = out_cols)
+  res = pd.concat([df[ignore_cols], d], axis=1)
+  return [res] + [r[i] for i in range(len(r)) if not i == apply_on]

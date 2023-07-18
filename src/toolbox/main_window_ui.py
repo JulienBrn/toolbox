@@ -107,6 +107,9 @@ class Ui_MainWindow(object):
         self.export_btn = QtWidgets.QPushButton(self.compute_btn_menu)
         self.export_btn.setObjectName("export_btn")
         self.horizontalLayout_2.addWidget(self.export_btn)
+        self.reload_df_btn = QtWidgets.QPushButton(self.compute_btn_menu)
+        self.reload_df_btn.setObjectName("reload_df_btn")
+        self.horizontalLayout_2.addWidget(self.reload_df_btn)
         spacerItem1 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout_2.addItem(spacerItem1)
         self.compute = QtWidgets.QPushButton(self.compute_btn_menu)
@@ -288,7 +291,7 @@ class Ui_MainWindow(object):
         MainWindow.setStatusBar(self.statusbar)
 
         self.retranslateUi(MainWindow)
-        self.menu_tabs.setCurrentIndex(2)
+        self.menu_tabs.setCurrentIndex(1)
         self.result_tabs.setCurrentIndex(0)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
@@ -301,6 +304,7 @@ class Ui_MainWindow(object):
         self.previous.setText(_translate("MainWindow", "<"))
         self.next.setText(_translate("MainWindow", ">"))
         self.export_btn.setText(_translate("MainWindow", "Export"))
+        self.reload_df_btn.setText(_translate("MainWindow", "Reload"))
         self.compute.setText(_translate("MainWindow", "Compute All"))
         self.view.setText(_translate("MainWindow", "View All"))
         self.menu_tabs.setTabText(self.menu_tabs.indexOf(self.computation_tab), _translate("MainWindow", "Computations"))

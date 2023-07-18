@@ -50,6 +50,8 @@ class MTableView(QTableView):
                return (toolbox.Video, [i])
             elif isinstance(i, toolbox.MatPlotLibObject):
                return (toolbox.Video, [i])
+            elif isinstance(i, str):
+               return (Any, [])
             elif isinstance(i, collections.abc.Sequence):
                 print(type(i))
                 rec = [compute_subtype(e)  for e in list(i)]
