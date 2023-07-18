@@ -64,23 +64,48 @@ class DataFrameModel(QtCore.QAbstractTableModel):
             return QtCore.QVariant()
         val = self._dataframe.iloc[row][col]
         if role == QtCore.Qt.DisplayRole:
+            from toolbox import RessourceHandle
+            def mk_nice_type_print(s):
+                return s.split('.')[-1].strip(" <>'").replace("DataFrame", "DF").replace("numpy", "np")
+            
+            def print_value(v):
+                if len(str(v)) < 50 and not isinstance(v, RessourceHandle):
+                    return str(v)
+                if hasattr(v, "shape"):
+                    return f"{mk_nice_type_print(str(type(v)))}(Shape({v.shape}))"
+                if hasattr(v, "len"):
+                    return f"{mk_nice_type_print(str(type(v)))}(len({len(v)}))"
+                if isinstance(v, RessourceHandle):
+                    if v.is_in_memory():
+                        return f"{print_value(v.get_result())}*"
+                    else:
+                        return str(v)
+            return print_value(val)
             # if isinstance(val, DisplayImg):
             #     print("Showing img")
             #     return val.image
-            # else:
+            # # else:
+            # from toolbox import RessourceHandle
+            # prefix=""
+            # if isinstance(val, toolbox.RessourceHandle):
+            #     if val.is_in_memory():
+            #         v = val.get_result()
+            #         prefix = "Rec"
+            
+            
 
-            import numpy as np
-            if hasattr(val, "__len__") and not isinstance(val, str) and not isinstance(val, np.ndarray) and len(str(val)) > 100:
-                types = {str(type(t)).split(".")[-1].replace("class", "").strip("\' <>,") for t in val}
-                valtypestr = str(type(val)).replace('class', '').strip('\' <>,')
-                if len(types)==1:
-                    return f"{valtypestr}({len(val)}, {types.pop()})"
-                if len(types) <3:
-                    return f"{valtypestr}({len(val)}, {types})"
-                else:
-                    return f"{valtypestr}({len(val)})"
-            else:
-                return str(val)
+            # import numpy as np
+            # if hasattr(val, "__len__") and not isinstance(val, str) and not isinstance(val, np.ndarray) and len(str(val)) > 100:
+            #     types = {str(type(t)).split(".")[-1].replace("class", "").strip("\' <>,") for t in val}
+            #     valtypestr = str(type(val)).replace('class', '').strip('\' <>,')
+            #     if len(types)==1:
+            #         return f"{valtypestr}({len(val)}, {types.pop()})"
+            #     if len(types) <3:
+            #         return f"{valtypestr}({len(val)}, {types})"
+            #     else:
+            #         return f"{valtypestr}({len(val)})"
+            # else:
+            #     return prefix + str(val)
         # elif role == DataFrameModel.DecorationRole:
         #     print("decoration")
         elif role == DataFrameModel.ValueRole:
