@@ -344,7 +344,7 @@ class Manager:
       ressource.remove_from_memory()
       ressource.remove_from_disk()
     for id,rec in self.d.items():
-      if not rec.computer is None and ressource in [i for i in rec.computer.params.values() if isinstance(i, Ressource) or isinstance(i, RessourceHandle) ]:
+      if not rec.computer is None and ressource in [i for i in rec.computer.params.values() if isinstance(i, Manager.Ressource)]:
           rec.invalidate_all()
 
   def is_in_memory(self, id) -> bool: 
