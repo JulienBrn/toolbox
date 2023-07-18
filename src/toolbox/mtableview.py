@@ -31,12 +31,13 @@ class MTableView(QTableView):
         selection = [(i.row(), i.column()) for i in self.selectionModel().selection().indexes()]
         item_selected = self.model()._dataframe.iloc[self.selectionModel().selection().indexes()[0].row(), self.selectionModel().selection().indexes()[0].column()]
         self.menu = QMenu(self)
+        
         computeAction = QAction('Compute', self)
         loadAction = QAction('Load', self)
         invalidateAction = QAction('Invalidate', self)
         expandAction = QAction('ResizeColumnToContents', self)
-        plotAction = QAction('Plot', self)
-        viewRow = QAction('View row', self)
+        plotAction = QAction('Plot*', self)
+        viewRow = QAction('View row*', self)
         showtype = QAction('show type', self)
         
         if len(selection) == 1:
@@ -51,21 +52,39 @@ class MTableView(QTableView):
             elif isinstance(i, toolbox.MatPlotLibObject):
                return (toolbox.Video, [i])
             elif isinstance(i, str):
-               return (Any, [])
+               return (str, [])
             elif isinstance(i, collections.abc.Sequence):
-                print(type(i))
+                # print(type(i))
                 rec = [compute_subtype(e)  for e in list(i)]
-                print("Rec: ", rec)
+                # print("Rec: ", rec)
                 rec = [(t, val) for t, l in rec for val in l]
                 types = {t  for t, val in rec}
                 if len(types) == 1:
                     return (types.pop(), [val for t, val in rec])
                 else:
-                   return (Any, [])
+                   return (type(i), [])
             else:
-               return (Any, [])
+               return (type(i), [])
                 
           t, items = compute_subtype(item_selected)
+          def mk_nice_type_print(s):
+                return s.split('.')[-1].strip(" <>'").replace("DataFrame", "DF").replace("numpy", "np")
+          def compute_subtypes_dict(i):
+            if isinstance(i, RessourceHandle):
+              if i.is_in_memory():
+                 return {mk_nice_type_print(str(type(i))): compute_subtypes_dict(i.get_result())}
+              loader = i.get_loader()
+              return {mk_nice_type_print(str(type(i))): str(loader)}
+            elif isinstance(i, collections.abc.Sequence):
+              rec = {compute_subtypes_dict(e)  for e in list(i)}
+              return {mk_nice_type_print(str(type(i))):list(rec)}
+            else:
+               return mk_nice_type_print(str(type(i)))
+             
+              
+          self.menu.addAction(showtype)
+          import json
+          showtype.triggered.connect(lambda: self.message_box(json.dumps(compute_subtypes_dict(item_selected), separators=("\n", "\n"), indent=4)))
 
           if t == toolbox.Video:
               export_vid = QAction('export video', self)
@@ -86,6 +105,13 @@ class MTableView(QTableView):
                 open_in_file_manager = QAction('open in file manager', self)
                 open_in_file_manager.triggered.connect(lambda: self.open_in_file_manager(item_selected))
                 self.menu.addAction(open_in_file_manager)
+            if not item_selected.is_stored():
+                self.menu.addAction(computeAction)
+            if not item_selected.is_in_memory():
+              self.menu.addAction(loadAction)
+            if item_selected.is_stored():
+                self.menu.addAction(invalidateAction)
+                
 
         viewRow.triggered.connect(lambda: self.viewRowSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         computeAction.triggered.connect(lambda: self.computeSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
@@ -93,14 +119,16 @@ class MTableView(QTableView):
         invalidateAction.triggered.connect(lambda: self.invalidateSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         expandAction.triggered.connect(lambda: self.expandSlot({index.column() for index in self.selectionModel().selection().indexes()}))
         plotAction.triggered.connect(lambda: self.plotSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
-        showtype.triggered.connect(lambda: self.message_box(str(type(self.model()._dataframe.iloc[self.selectionModel().selection().indexes()[0].row(), self.selectionModel().selection().indexes()[0].column()]))))
-        self.menu.addAction(computeAction)
-        self.menu.addAction(invalidateAction)
+        
+        if len(selection) > 1:
+          self.menu.addAction(computeAction)
+          self.menu.addAction(invalidateAction)
+          self.menu.addAction(loadAction)
+          # self.menu.addAction(showtype)
+
         self.menu.addAction(expandAction)
-        self.menu.addAction(plotAction)
         self.menu.addAction(viewRow)
-        self.menu.addAction(loadAction)
-        self.menu.addAction(showtype)
+        self.menu.addAction(plotAction)
         # add other required actions
         self.menu.popup(QCursor.pos())
       

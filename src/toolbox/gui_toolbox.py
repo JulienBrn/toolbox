@@ -72,7 +72,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
                 if len(str(v)) < 50 and not isinstance(v, RessourceHandle):
                     return str(v)
                 if hasattr(v, "shape"):
-                    return f"{mk_nice_type_print(str(type(v)))}(Shape({v.shape}))"
+                    return f"{mk_nice_type_print(str(type(v)))}(Shape{v.shape})"
                 if hasattr(v, "len"):
                     return f"{mk_nice_type_print(str(type(v)))}(len({len(v)}))"
                 if isinstance(v, RessourceHandle):
@@ -80,6 +80,7 @@ class DataFrameModel(QtCore.QAbstractTableModel):
                         return f"{print_value(v.get_result())}*"
                     else:
                         return str(v)
+                return str(v)
             return print_value(val)
             # if isinstance(val, DisplayImg):
             #     print("Showing img")
