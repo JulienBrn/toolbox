@@ -166,6 +166,10 @@ class Manager:
     self.base_folder = base_folder
     pathlib.Path(base_folder).mkdir(parents=True, exist_ok=True)
 
+  def set_cache(self, base_folder):
+    self.base_folder = base_folder
+    pathlib.Path(base_folder).mkdir(parents=True, exist_ok=True)
+
   def create_value_ressource(self, value, path, loader, storage: List[str], name="ValueRessource") -> RessourceHandle: 
     """ 
       Path must not exist !
@@ -340,7 +344,7 @@ class Manager:
       ressource.remove_from_memory()
       ressource.remove_from_disk()
     for id,rec in self.d.items():
-      if rec.computer and ressource in [i for i in rec.computer.params.values() if isinstance(i, RessourceHandle)]:
+      if not rec.computer is None and ressource in [i for i in rec.computer.params.values() if isinstance(i, Ressource)]:
           rec.invalidate_all()
 
   def is_in_memory(self, id) -> bool: 
