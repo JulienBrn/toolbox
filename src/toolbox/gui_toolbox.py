@@ -108,21 +108,26 @@ class DataFrameModel(QtCore.QAbstractTableModel):
                     if x.is_in_memory():
                         param2 = 10
                         if hasattr(x.get_result(), "shape"):
+                            paramsize = len(x.get_result().shape)
                             param3= x.get_result().shape
                         elif hasattr(x.get_result(), "__len__"):
-                            param3 = (len(x),)
+                            paramsize = 1
+                            param3 = len(x)
                         else:
-                            param3 = 0
+                            paramsize = 0
+                            param3 = ()
                         param4 = str(x.get_result())
                     else:
                         param2 = 2 if x.is_saved_on_disk() else 1
-                        param3=(0,)
+                        paramsize = 0
+                        param3=()
                         param4=str(x)
                 else:
                     param2 = 0
-                    param3=(0,)
+                    paramsize = 0
+                    param3=()
                     param4=str(x)
-                return (param1, param2, param3, param4)
+                return (param1, param2, paramsize, param3, param4)
             return col.apply(lambda x: custom_key(x))
         try:
             self._dataframe.sort_values(by=self._dataframe.columns[col], inplace=True, ascending=asc)

@@ -251,7 +251,7 @@ class Manager:
         logger.error("Value is None but should be stored in memory. Probably a bug in the ressource manager.")
       if isinstance(ressource.value, Error):
         real_params = {key:val for key, val in ressource.computer.params.items()}
-        logger.error("Ressource value in memory is error for {}({}). Error is {}".format(ressource.handle.name,str(real_params), ressource.value))
+        # logger.error("Ressource value in memory is error for {}({}). Error is {}".format(ressource.handle.name,str(real_params), ressource.value))
       return ressource.value
     if "Disk" in ressource.storage_locations: #For now, we keep in memory
       ressource.disk_to_memory()
@@ -274,7 +274,7 @@ class Manager:
       error_params = {key:val for key, val in real_params.items() if isinstance(val, Error)}
       if ressource.computer.error_method !="filter" and len(error_params) > 0:
         # print("Err method for ressource:", ressource.handle.name, ressource.computer.error_method)
-        logger.error("Error while computing ressource {}({}). Error is is due to paramters {}".format(ressource.handle.name,str(real_params), error_params))
+        # logger.error("Error while computing ressource {}({}). Error is is due to paramters {}".format(ressource.handle.name,str(real_params), error_params))
         res = Error(BaseException("Error in parameters {}".format(error_params)))
         # if 
         # return 

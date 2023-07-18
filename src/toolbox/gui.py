@@ -694,7 +694,11 @@ class Window(QMainWindow, Ui_MainWindow):
       if path is None:
          path, ok = QFileDialog.getOpenFileName(self, caption="Setup parameters to load from", filter="*.json")
       try:
-         self.set_setup_params(toolbox.json_loader.load(path))
+         new_param: Dict[str, str] = toolbox.json_loader.load(path)
+         df: pd.DataFrame = self.setup_params_tree.model().get_values().set_index('Parameter Name')
+         curr_params: Dict[str, str] = df['Parameter Value'].to_dict()
+         curr_params.update(new_param)
+         self.set_setup_params(curr_params)
       except:
          logger.error("Impossible to load configuration file")
 
