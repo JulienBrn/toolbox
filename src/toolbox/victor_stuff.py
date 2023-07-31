@@ -19,23 +19,31 @@ class Video(collections.abc.Sequence):
             self.source_path = copy.source_path
             self.is_from_img_list=copy.is_from_img_list
             self.img_list = [img for img in copy.img_list] if not copy.img_list is None else None
+            self.start_frame=copy.start_frame
+            self.end_frame = copy.end_frame
         elif isinstance(path, str) or isinstance(path, pathlib.Path):
             import cv2
             self.vid = cv2.VideoCapture(str(path))
             self.source_path = str(path)
             self.transformations=[]
+            self.start_frame=0
+            self.end_frame = int(self.vid.get(cv2.CAP_PROP_FRAME_COUNT))
             self.width = self[0].shape[1]
             self.height = self[0].shape[0]
             self.is_from_img_list=False
             self.img_list = None
+            
         else:
             self.vid= None
             self.source_path = "from imgs"
             self.is_from_img_list=True
             self.img_list = path
+            self.start_frame=0
+            self.end_frame = len(self.img_list)
             self.width = self[0].shape[1]
             self.height = self[0].shape[0]
             self.transformations=[]
+            
 
     @property
     def fps(self):
@@ -46,10 +54,7 @@ class Video(collections.abc.Sequence):
     
     @property
     def nb_frames(self):
-        if self.is_from_img_list:
-            return len(self.img_list)
-        import cv2
-        return int(self.vid.get(cv2.CAP_PROP_FRAME_COUNT))
+        return self.end_frame-self.start_frame
     
     @property
     def duration(self):
@@ -75,11 +80,18 @@ class Video(collections.abc.Sequence):
     def __len__(self):
         return self.nb_frames
     
+    def cut(self, start, end):
+        v = self.copy()
+        v.start_frame = v.start_frame+start
+        v.end_frame = v.start_frame +end
+        return v
+    
     def __getitem__(self, pos):
         import cv2
         if isinstance(pos, int):
             if pos >= self.nb_frames:
                 raise IndexError(f"Video has only {self.nb_frames} frames. Trying to access frame {pos}")
+            pos = pos - self.start_frame
             if self.is_from_img_list:
                 return self.img_list[pos]
             self.vid.set(cv2.CAP_PROP_POS_FRAMES, pos)
@@ -106,7 +118,7 @@ class Video(collections.abc.Sequence):
     def __iter__(self):
         import cv2
         if not self.is_from_img_list:
-            self.vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.start_frame)
         self.iterpos=0
         return self
     

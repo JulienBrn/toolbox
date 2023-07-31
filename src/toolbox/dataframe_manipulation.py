@@ -35,6 +35,17 @@ def group_and_combine(df: pd.DataFrame, group_cols, include_eq = False):
     return ret[ret["__my_index_for_group_combine_1"] <= ret["__my_index_for_group_combine_2"]].drop(columns=["__my_index_for_group_combine_1", "__my_index_for_group_combine_2"])
   else:
     return ret[ret["__my_index_for_group_combine_1"] < ret["__my_index_for_group_combine_2"]].drop(columns=["__my_index_for_group_combine_1", "__my_index_for_group_combine_2"])
+ 
+def df_for_each_row(d: pd.DataFrame, f):
+  dfs=[]
+  for _, row in d.iterrows():
+    df = f(row)
+    for col, v in row.items():
+        if not col in df.columns:
+          df[col] = v
+    dfs.append(df)
+  return pd.concat(dfs).reset_index(drop=True)
+ 
   # df = df.copy()
   # df["__group_num"] = df.groupby(by=group_cols).ngroup()
   # groups = df.groupby(by=group_cols+["__group_num"])

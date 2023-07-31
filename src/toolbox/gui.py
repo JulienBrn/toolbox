@@ -699,8 +699,8 @@ class Window(QMainWindow, Ui_MainWindow):
          curr_params: Dict[str, str] = df['Parameter Value'].to_dict()
          curr_params.update(new_param)
          self.set_setup_params(curr_params)
-      except:
-         logger.error("Impossible to load configuration file")
+      except BaseException as e:
+         logger.error(f"Impossible to load configuration file. Error is {e}")
 
    def export_config(self):
       df: pd.DataFrame = self.setup_params_tree.model().get_values().set_index('Parameter Name')

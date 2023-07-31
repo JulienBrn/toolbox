@@ -6,8 +6,8 @@ from toolbox.data_analysis_toolbox import order_differences, crange
 from toolbox.figure_list_interaction import make_figure_list_interaction, FigureList
 from toolbox.stuff import roundTime
 from toolbox.pipeline import mk_block, get_columns, save_columns, mk_block_old
-from toolbox.ressource_manager import get, Error, pickle_loader, no_loader, json_loader, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, Manager, RessourceHandle, RessourceLoader, execute_as_subprocess
-from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape, as_numpy_subselect
+from toolbox.ressource_manager import get, Error, pickle_loader, no_loader, json_loader, np_loader, df_loader, float_loader, matlab_loader, matlab73_loader, Manager, RessourceHandle, RessourceLoader, execute_as_subprocess, mk_loader_with_error
+from toolbox.dataframe_manipulation import group_and_combine, dataframe_reshape, as_numpy_subselect, df_for_each_row
 from toolbox.profiling import Profile
 from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel, VideoPlayer
 from toolbox.gui import GUIDataFrame, Window, mk_result_tab, export_fig
