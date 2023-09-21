@@ -463,8 +463,8 @@ class Window(QMainWindow, Ui_MainWindow):
             if self.current_df == current_df:
                try:
                   self.tableView.setModel(DataFrameModel(ndf.reset_index(drop=True)))
-                  if self.tableView.model().rowCount() < 500:
-                     self.tableView.resizeColumnsToContents()
+                  # if self.tableView.model().rowCount() < 500:
+                  #    self.tableView.resizeColumnsToContents()
                except BaseException as e:
                   display = [str(e), str(traceback.format_exc())]
                   if isinstance(ndf, toolbox.Error):
@@ -472,8 +472,8 @@ class Window(QMainWindow, Ui_MainWindow):
                      for s in string.split("\n"):
                         display.append(s)
                   self.tableView.setModel(DataFrameModel(pd.DataFrame([[e] for e in display], columns=["Error"])))
-                  self.tableView.resizeColumnsToContents()
-                  self.tableView.resizeRowsToContents()
+                  # self.tableView.resizeColumnsToContents()
+                  # self.tableView.resizeRowsToContents()
                # self.tableView.resizeColumnsToContents()
 
          # if self.dfs[self.current_df].update_df():
@@ -612,6 +612,9 @@ class Window(QMainWindow, Ui_MainWindow):
       #    d = self.dfs[self.current_df].time_series
       #    l = [(i, j) for i,j in indices if self.tableView.model()._dataframe.columns[j] in d]
       #    return 
+   def get_current_key_cols(self):
+      return self.dfs[self.current_df].key_columns
+
 
    def mk_view_task(self, indices):
       self.curr_view_all = False

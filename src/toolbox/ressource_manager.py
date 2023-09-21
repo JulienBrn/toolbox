@@ -98,7 +98,7 @@ def mk_pickle_loader():
   def save(path, d):
     with open(str(path), "wb") as fp:
       pickle.dump(d , fp) 
-  return RessourceLoader(".pickle", load, save)
+  return RessourceLoader(".pkl", load, save)
 
 def mk_no_loader():
   import pickle
@@ -286,7 +286,7 @@ class Manager:
           raise e
         except BaseException as e:
           tb = traceback.format_exc()
-          logger.error("Error while computing ressource {}({}). Error is {}. \n\nTraceback:\n{}".format(ressource.handle.name,str(real_params), e, tb))
+          logger.error("Error while computing ressource {}({}). Error is {}. \n\nTraceback:\n{}".format(ressource.handle.name,str(real_params)[:5000], e, tb))
           res = Error(e, tb)
       for key, (loader, childid, save) in ressource.computer.out.items():
         rec = self.d[childid]
@@ -305,23 +305,23 @@ class Manager:
     
   def unload_memory_if_necessary(self):
     mem = psutil.virtual_memory()
-    if mem.available/1000000000 < 10: #25Gb
+    if mem.available/10**9 < 15: #25Gb
       # logger.warning("Memory usage was {}, unloading".format({k:v/1000000000 for k, v in mem._asdict().items()}))
-      for r in self.d.values():
-        handle: RessourceHandle = r.handle
-        if handle.is_saved_on_disk():
-          handle.unload()
-      mem = psutil.virtual_memory()
-      if mem.available/1000000000 <10: #20Gb
+      # for r in self.d.values():
+      #   handle: RessourceHandle = r.handle
+      #   if handle.is_saved_on_disk():
+      #     handle.unload()
+      # mem = psutil.virtual_memory()
+      # if mem.available/1000000000 <10: #20Gb
         # logger.warning("Memory usage was {} even after unloading saved results, unloading fully".format({k:v/1000000000 for k, v in mem._asdict().items()}))
         for r in self.d.values():
           handle: RessourceHandle = r.handle
           handle.unload()
-      mem = psutil.virtual_memory()
-      # logger.warning("Finishing with memory {}".format({k:v/1000000000 for k, v in mem._asdict().items()}))
-      if mem.available/1000000000 <10: #20Gb
-        # logger.error("Memory problem. Unable to guarantee memory space")
-        pass
+      # mem = psutil.virtual_memory()
+      # # logger.warning("Finishing with memory {}".format({k:v/1000000000 for k, v in mem._asdict().items()}))
+      # if mem.available/1000000000 <10: #20Gb
+      #   # logger.error("Memory problem. Unable to guarantee memory space")
+      #   pass
     
 
   def save_on_disk(self, id):

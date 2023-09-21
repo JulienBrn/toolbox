@@ -39,7 +39,7 @@ class MTableView(QTableView):
         plotAction = QAction('Plot*', self)
         viewRow = QAction('View row*', self)
         showtype = QAction('show type', self)
-        
+        export_action = QAction('export ressources', self)
         if len(selection) == 1:
           def compute_subtype(i):
             if isinstance(i, RessourceHandle):
@@ -119,7 +119,7 @@ class MTableView(QTableView):
         invalidateAction.triggered.connect(lambda: self.invalidateSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         expandAction.triggered.connect(lambda: self.expandSlot({index.column() for index in self.selectionModel().selection().indexes()}))
         plotAction.triggered.connect(lambda: self.plotSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
-        
+        export_action.triggered.connect(lambda: self.export_actionSlot(self.selectionModel().selection().indexes(), self.model()._dataframe))
         if len(selection) > 1:
           self.menu.addAction(computeAction)
           self.menu.addAction(invalidateAction)
@@ -129,11 +129,13 @@ class MTableView(QTableView):
         self.menu.addAction(expandAction)
         self.menu.addAction(viewRow)
         self.menu.addAction(plotAction)
+        self.menu.addAction(export_action)
         # add other required actions
         self.menu.popup(QCursor.pos())
       
     def open_in_file_manager(self, r: RessourceHandle):
        path = r.get_disk_path()
+       print(path)
        import subprocess
        subprocess.run(["gdbus", "call", "--session", 
                        "--dest", "org.freedesktop.FileManager1", 
@@ -224,6 +226,43 @@ class MTableView(QTableView):
           for item in task_info["progress"](items):
               item.invalidate_all()
       task = Task(win, "invalidate", lambda task_info: True, lambda task_info: self.model().dataChanged.emit(selec[0], selec[-1]), run, {})
+      win.add_task(task)
+
+    def export_actionSlot(self, selec, df):
+      from toolbox.gui import Task
+      win = self.window()
+      key_cols = win.get_current_key_cols()
+      path = QFileDialog.getExistingDirectory(self, caption="Save data to")
+      path = pathlib.Path(path)
+      res = []
+      for i in selec:
+        l = []
+        npath = path
+        r, c = i.row(), i.column()
+        for col in key_cols:
+          l.append((col, df[col].iat[r]))
+        l.append(("column", df.columns[c]))
+        r: toolbox.RessourceHandle = df.iloc[r, c]
+        for n, val in l:
+           npath = npath / f"{n}={val}"
+        res.append((npath, r))
+
+      def run(task_info):
+        import shutil
+        for npath, r in task_info["progress"](res):
+          npath: pathlib.Path
+          r: toolbox.RessourceHandle
+          npath.parent.mkdir(parents=True, exist_ok=True)
+          if isinstance(r, toolbox.RessourceHandle):
+            if not r.is_saved_on_disk():
+              logger.error(f"Ressource {npath} not exported: not saved on disk")
+            rpath = r.get_disk_path()
+            shutil.copy(str(rpath), str(npath)+rpath.suffix)
+          else:
+             with pathlib.Path(str(npath)+".txt").open("w") as f:
+                f.write(str(r))
+        
+      task = Task(win, "exporting", lambda task_info: True, lambda task_info: True, run, {})
       win.add_task(task)
 
     def expandSlot(self, indices):
