@@ -165,6 +165,8 @@ Example Values (2 max per dimension)
         else:
             d = self.a
         if d.size ==1:
+            if not isinstance(d.values.flat[0], DataArray):
+                return d.values.flat[0]
             if len(d.coords) == 0: 
                 return d.values.flat[0].to_series(n)
             # input(d)
@@ -426,6 +428,10 @@ def tmp_func(d: DataArray, other_dims: Set[str]) -> DataArray:
 import nptyping as npt
 
 def rec_transform_array_for_ufunc(array: DataArray, agg_col, aggregated_dims: List[str], lowered_dims: List[str]) -> DataArray:
+    if array.level_name is None:
+        return array
+    res = array.copy()
+    lowered_dims = [x for x in array.a.dims if x in lowered_dims]
     #Create agg column in current array
     #Create agg column in each subarray
     #In each subarray group, stack the aggregated columns and merge the others and apply recursively
@@ -458,15 +464,13 @@ def rec_transform_array_for_ufunc(array: DataArray, agg_col, aggregated_dims: Li
         else:
             return np.nan
     def f(grouparr: np.ndarray):
-        # dn = dn.reshape(list(dn.shape[:-1]) +[-1])
+        # dn = dn.reshape(list(dn.shape[:-(n-1)]) +[-1]) 
         res = np.apply_along_axis(work, -1, grouparr)
         # input("Waiting f")
         return res
     
-    if array.level_name is None:
-        return array
-    res = array.copy()
-    res.a = xr.apply_ufunc(f, array.a, input_core_dims=[[agg_col]])
+    
+    res.a = xr.apply_ufunc(f, array.a, input_core_dims=[lowered_dims+[agg_col]])
     return res
 
 def transform_array_for_ufunc(array: DataArray, aggregated_dims: List[str], lowered_dims: List[str], agg_col ="__agg_transform_ufunc") -> DataArray:
@@ -482,7 +486,7 @@ def transform_array_for_ufunc(array: DataArray, aggregated_dims: List[str], lowe
     # input("Waiting")
     return rec_transform_array_for_ufunc(res, agg_col, aggregated_dims, lowered_dims)
     
-def rec_apply_ufunc(func, arrays, output_dims: List[List[str]] = [[]], agg_col ="__agg_transform_ufunc"):
+def rec_apply_ufunc(func, arrays, output_dims: List[List[str]] = [[]], agg_col ="__agg_transform_ufunc", lowered_dims=[]):
     arrays = [ar for ar in arrays if isinstance(ar, DataArray)]
     if len(arrays) ==0:
         return np.nan
@@ -492,25 +496,31 @@ def rec_apply_ufunc(func, arrays, output_dims: List[List[str]] = [[]], agg_col =
     
     if res.level_name is None:
         def compute(*dn):
+            logger.warning([d.shape for d in dn])
             # logger.info(f"len {len(dn)}")
             stacked = np.stack(dn, axis =-1)
             # input(stacked.shape)
-            reshaped = stacked.reshape(list(stacked.shape[:-2]) +[-1])
+            # reshaped = stacked.reshape(list(stacked.shape[:-1]) +[-1])
+            # logger.warning(reshaped.shape)
             # input(reshaped.shape)
-            return np.apply_along_axis(lambda x: func(*x.reshape((len(dn), -1))), -1, reshaped)
-        res.a = xr.apply_ufunc(compute, *[ar.a for ar in arrays], input_core_dims=[[agg_col] for _ in arrays], exclude_dims={agg_col}, output_core_dims=output_dims)
+            # return np.apply_along_naxis(lambda x: func(*x), -1, stacked)
+            return func(*dn)
+        res.a = xr.apply_ufunc(compute, *[ar.a for ar in arrays], input_core_dims=[lowered_dims+[agg_col] for _ in arrays], exclude_dims={agg_col}, output_core_dims=output_dims)
+        logger.warning(res.a)
     else:
         def rec_call(*x):
             # print([d.flat[0] for d in x])
             # input()
-            return rec_apply_ufunc(func,  x, output_dims, agg_col=agg_col)
+            return rec_apply_ufunc(func,  x, output_dims, agg_col=agg_col, lowered_dims=lowered_dims)
         res.a = xr.apply_ufunc(rec_call, *[ar.a for ar in arrays if isinstance(ar, DataArray)], vectorize=True)
+    print(res)
+    # input()
     return res
 
 def apply_ufunc(func, *arrays, aggregated_dims: List[List[str]], lowered_dims: List[str], output_dims: List[List[str]] = [[]]):
     agg_col ="__agg_transform_ufunc"
     arrays = [transform_array_for_ufunc(a, agg, lowered_dims, agg_col=agg_col) for a,agg in zip(arrays, aggregated_dims)]
-    return rec_apply_ufunc(func, arrays, output_dims, agg_col)
+    return rec_apply_ufunc(func, arrays, output_dims, agg_col, lowered_dims=lowered_dims)
     
     # other_dims = {x for x in removed_dims if not x in array.a.dims}
 

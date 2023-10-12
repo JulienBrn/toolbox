@@ -28,14 +28,22 @@ pwelch = x.mean_tmp({"t", "sig_num"})
 print(pwelch)
 pwelch2 = x.mean_tmp({"t"}).mean_tmp({"sig_num"})
 print(pwelch2)
-test = hx.apply_ufunc(lambda a, b: np.abs(a-b).sum(), pwelch, pwelch2, aggregated_dims=[["freq"], ["freq"]], lowered_dims=[])
+def diff_sum(a,b):
+    
+    r= np.abs(a-b).mean()/a.mean()
+    print(a.shape,b.shape, r)
+    return r
+# test = hx.apply_ufunc(diff_sum, pwelch.sel(freq=slice(8, 30)), pwelch2.sel(freq=slice(8, 30)), aggregated_dims=[[], []], lowered_dims=[])
 
-print(test)
+# print(test.count_tmp({}))
+# print(test.to_series().to_string())
+test2 = hx.apply_ufunc(diff_sum, pwelch.sel(freq=slice(8, 30)), pwelch2.sel(freq=slice(8, 30)), aggregated_dims=[[], []], lowered_dims=["freq"])
+print(test2.to_series().to_string())
 # print(tmp.to_series().to_string())
 raise RuntimeError("Stop")
 # print(x.to_series().to_string())
-pwelch = x.mean_tmp({"t", "sig_num"})
-pwelch2 = x.mean_tmp({"t"}).mean_tmp({"sig_num"})
+# pwelch = x.mean_tmp({"t", "sig_num"})
+# pwelch2 = x.mean_tmp({"t"}).mean_tmp({"sig_num"})
 pwelch_df = pwelch.to_series()
 pwelch2_df = pwelch2.to_series()
 plot_data = pd.DataFrame({"window":pwelch_df, "signal":pwelch2_df})
@@ -44,11 +52,12 @@ old_names = plot_data.index.names
 plot_data = plot_data.stack()
 plot_data.name = "Amplitude"
 plot_data.index.names = old_names+["avg_unit"]
-print(plot_data)
+# print(plot_data)
 plot_data = plot_data.reset_index()
 sns.relplot(kind="line", data=plot_data, x="freq", y="Amplitude", hue="Species", style="avg_unit", row="Structure", col="Healthy")
 plt.show()
-input(plot_data)
+raise RuntimeError("Stop")
+# input(plot_data)
 # res_df = res
 # with_pd = x.to_series().groupby([col for col in x.a.dims] + ["freq"], observed=True).mean().xs(("Rat", "GPe", False, "bua"))
 # print(res_df)
