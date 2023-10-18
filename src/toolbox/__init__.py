@@ -12,4 +12,5 @@ from toolbox.profiling import Profile
 from toolbox.gui_toolbox import DataFrameModel, DisplayImg, DictTreeModel, VideoPlayer
 from toolbox.gui import GUIDataFrame, Window, mk_result_tab, export_fig
 from toolbox.victor_stuff import Line, Rectangle, Video, Image, rectangle_loader, video_loader, MatPlotLibObject, mplo_loader
+from toolbox.figure_plot import FigurePlot
 import toolbox.hxarray
