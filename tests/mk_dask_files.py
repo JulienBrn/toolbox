@@ -20,7 +20,7 @@ logging.getLogger("asyncio").setLevel(logging.WARNING)
 ProgressBar().register()
 
 def aggregate_by(self, by, *args, **kwargs):
-    all_index_cols={"Species", "Structure", "Healthy", "signal_resampled_type", "t", "freq", "signal_num"}
+    all_index_cols={"Species", "Structure", "Healthy", "signal_resampled_type", "t", "freq", "sig_num"}
     return self.groupby([col for col in self.columns if not col in by and col in all_index_cols], *args, **kwargs, observed=True)
 dd.DataFrame.aggregate_by = aggregate_by
 
