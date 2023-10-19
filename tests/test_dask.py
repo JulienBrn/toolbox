@@ -245,8 +245,8 @@ counts: pd.DataFrame = get_counts()
 pwelch: pd.DataFrame = get_pwelch()
 bands: dd.DataFrame  = get_band_df()
 kde: pd.DataFrame = get_kde(bands)
-sorted_bands = get_sorted_bands(bands)
-relative_distributions=get_relative_distributions(sorted_bands)
+# sorted_bands = get_sorted_bands(bands)
+# relative_distributions=get_relative_distributions(sorted_bands)
 # raise Exception("Stop")
 
 
