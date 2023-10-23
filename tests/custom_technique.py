@@ -15,7 +15,7 @@ nwindows,nsignals = None, None
 bands = pd.DataFrame([[8, 15], [16, 30], [8, 30], [31, 49]], columns=["band_start","band_end"])
 
 
-all_index_cols=["Species", "Structure","CorticalState", "Condition", "sig_type",  "sig_num", "t", "freq", "agg_type", "band_name", "kde_bw", "band_agg"]
+all_index_cols=["Species", "Structure","CorticalState", "Condition", "sig_type",  "sig_num", "t", "freq", "agg_type", "band_name", "kde_bw", "band_agg", "spectral_power"]
 Autosave.nwindows,Autosave.nsignals, Autosave.result_base_path = nwindows, nsignals, "./ResultsCustom"
 Autosave.param_name = f"{nwindows if not nwindows is None else 'all'},{nsignals if not nsignals is None else 'all'}"
 
@@ -83,7 +83,6 @@ def get_kde(band_spectrogram: pd.DataFrame):
         res = pd.DataFrame({"kde":pd.Series(kdes)})
         res.index.name="kde_bw"
         res = res.apply(lambda row: pd.Series(row["kde"](np.linspace(0, 0.010, 200)), index=np.linspace(0, 0.010, 200), name="density"), axis=1)
-        # input(res)
         res.columns.name = "spectral_power"
         res = res.stack("spectral_power")
         res.name="density"
@@ -94,14 +93,55 @@ def get_kde(band_spectrogram: pd.DataFrame):
     kde.name="density"
     return kde
 
+@Autosave("band_distribution", version = 5, debug=False)
+def get_band_distribution(band_spectrogram: pd.DataFrame):
+    def compute(path, amps):
+        df = pd.read_parquet(path)
+        all_values = np.sort(df.values.reshape(-1))
+        all_values = all_values[~np.isnan(all_values)]
+        res = np.searchsorted(all_values, amps)/all_values.size
+        return pd.Series(res, index=amps, name="quantile")
+    
+    quantiles = band_spectrogram.progress_apply(compute, amps=np.linspace(0.0001, 0.01, 2000))
+    quantiles.columns.name = "spectral_power"
+    quantiles = quantiles.stack("spectral_power")
+    quantiles.name="quantile"
+    return quantiles
+
+
+@Autosave("thresholds", version = 3, debug=False)
+def get_thresholds(band_distribution: pd.DataFrame):
+    df = band_distribution.unstack("Condition")
+    df["Diff"] = np.abs(df["Control"] - df["Park"])
+    df = df.sort_values("Diff", ascending=False)
+    df = (
+            df.reset_index()
+            .drop_duplicates(subset=[col for col in all_index_cols if (col in df.columns or col in df.index.names) and not col in ["spectral_power"]])
+            .rename(columns={
+                "spectral_power": "threshold_spectral_power", 
+                "Diff": "threshold_difference", 
+                # "band_name": "threshold_band", 
+                "Control": "quantile_ctrl", "Park": "quantile_park"
+            })
+            .apply_index(append=False)
+    )
+    df["Best_threshold"] = df.aggregate_by(["band_name"])["threshold_difference"].transform(lambda d: d.max())
+    df["is_best"] = df["threshold_difference"] == df["Best_threshold"]
+    df = df.drop(columns=["Best_threshold"])
+    return df
+
 def main(spectrogram):
     tqdm.tqdm.pandas(desc="Computing")
     counts = get_counts(spectrogram)
     pwelch = get_pwelch(spectrogram)
     band_spectrogram= get_band_spectrogram(spectrogram)
     kde = get_kde(band_spectrogram)
+    band_distribution = get_band_distribution(band_spectrogram)
+    thresholds = get_thresholds(band_distribution)
+    logger.info("Plotting")
     plot_pwelch(pwelch, counts)
     plot_kde(kde)
+    plot_band_distribution(band_distribution, thresholds)
     plt.show()
 
 
@@ -131,7 +171,8 @@ def plot_pwelch(pwelch, counts):
     )
     pwelch_figs.tight_layout().add_legend()
 
-def plot_kde(kde):
+def plot_kde(kde: pd.DataFrame):
+    kde = kde.xs(0.00001, level="kde_bw", drop_level=False)
     figs = toolbox.FigurePlot(data=kde, 
         figures=["sig_type", "band_agg", "kde_bw"], 
         fig_title="Gaussian Kernel Density Estimate, sig_type={sig_type}, band_agg={band_agg}, kde_bandwith={kde_bw}", 
@@ -142,7 +183,33 @@ def plot_kde(kde):
     figs.map(sns.lineplot, x="spectral_power", y="density",  
         hue="Species", hue_order = species_order,
         style="Condition", dashes=[(1, 0), (1, 2)], style_order=condition_order,
-        # size="kde_bandwith", sizes=line_sizes
+    )
+    figs.tight_layout().add_legend()
+
+def plot_band_distribution(band_distribution, thresholds):
+    band_distribution = merge(band_distribution, thresholds)
+    figs = toolbox.FigurePlot(data=band_distribution, 
+        figures=["sig_type", "band_agg"], 
+        fig_title="Distribution in bands, sig_type={sig_type}, band_agg={band_agg}", 
+        row="Structure", row_order=structure_order,
+        col="Species",  col_order=species_order,
+        aspect=2, margin_titles=True
+    )
+    
+    def my_vlines(x, ymin, ymax, *args, hue, hue_order, color, data: pd.DataFrame, **kwargs):
+        import matplotlib.patheffects as mpe
+        data = data.drop_duplicates(subset=[x, ymin, ymax, hue])
+        data_best = data.loc[data["is_best"]]
+        data_other = data.loc[~data["is_best"]]
+        plt.vlines(x, ymin, ymax, *args, **kwargs, data=data_other, color=[f"C{hue_order.index(h)}" for h in data_other[hue]])
+        plt.vlines(x, ymin, ymax, *args, **kwargs, data=data_best, color=[f"C{hue_order.index(h)}" for h in data_best[hue]], path_effects=[mpe.withStroke(linewidth=3, foreground='black')])
+
+    figs.map(my_vlines, x="threshold_spectral_power", ymin="quantile_ctrl", ymax="quantile_park",
+             hue="band_name", hue_order = bands["band_name"].drop_duplicates().to_list()
+    )
+    figs.map(sns.lineplot, x="spectral_power", y="quantile",  
+        hue="band_name", hue_order = bands["band_name"].drop_duplicates(),
+        style="Condition", dashes=[(1, 0), (1, 2)], style_order=condition_order,
     )
     figs.tight_layout().add_legend()
 
@@ -159,8 +226,8 @@ def aggregate_by(self, by, *args, **kwargs):
 pd.DataFrame.aggregate_by = aggregate_by
 pd.Series.aggregate_by = aggregate_by
 
-def apply_index(self: pd.DataFrame):
-    return self.set_index([col for col in all_index_cols if col in self.columns], append=True)
+def apply_index(self: pd.DataFrame, append=True):
+    return self.set_index([col for col in all_index_cols if col in self.columns], append=append)
 pd.DataFrame.apply_index = apply_index
 
 def new_str(self):
@@ -181,7 +248,7 @@ def merge(a, b):
     # print(a)
     # print(b)
     # input(on)
-    return a.reset_index().merge(b.reset_index(), how="outer", on=on).apply_index().reset_index(level=0, drop=True)
+    return a.reset_index().merge(b.reset_index(), how="outer", on=on).apply_index(append=False)
 
 class PathTransformer: pass
 class PathInput: pass
@@ -192,6 +259,7 @@ sig_type_order=["lfp", "bua", "spikes"]
 condition_order = ["Park", "Control"]
 
 if __name__ =="__main__":
+    sns.set_theme()
     spectrogram = pd.read_parquet(pathlib.Path("." ) / "DataParquetCustom"/ f"{Autosave.param_name}.parquet")
     bands["band_name"] = bands.apply(lambda row: f"{row['band_start']}, {row['band_end']}", axis=1)
     bands.set_index("band_name")
