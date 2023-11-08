@@ -16,13 +16,13 @@ param_name = f"{nwindows if not nwindows is None else 'all'},{nsignals if not ns
 
 def make_data():
     logger.info("Creating parquet database")
-    data_path = pathlib.Path(f"/home/julien/Documents/spectrogram_export/database.tsv")
+    data_path = pathlib.Path(f"/home/julien/Documents/full_spectrogram/database.tsv")
     df: pd.DataFrame = toolbox.df_loader.load(data_path)
     df["sig_type"] = df.pop("signal_resampled_type")
 
     tqdm.tqdm.pandas(desc="Computing path of data files")
     df["path"] = df.apply(
-        lambda row: pathlib.Path("/home/julien/Documents/" ) / pathlib.Path(row["path"] + row["suffix"]).relative_to("/home/julien/Documents/GUIAnalysis/"),
+        lambda row: pathlib.Path("/home/julien/Documents/" ) / pathlib.Path(row["path"].replace("full_pwelch", "full_spectrogram") + row["suffix"]).relative_to("/home/julien/Documents/GUIAnalysis/"),
         axis=1
     )
 
