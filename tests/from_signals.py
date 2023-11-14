@@ -108,17 +108,10 @@ def auto_remove_dim(dataset:xr.Dataset):
             unshifted = np.apply_along_axis(lambda x: x[:-1], axis, sorted)
             shifted = np.apply_along_axis(lambda x: x[1:], axis, sorted)
             diffs =  (unshifted != shifted)
-            # if var.ndim ==1:
-            #     print(sorted.tolist())
-            #     print(diffs.tolist())
-            # input()
             return np.ma.filled((diffs!=0).sum(axis=axis)+1, 1)
 
         nums = nunique(var, axis=-1, to_str=True)
         if (nums==1).all():
-            # if var.ndim ==1:
-                # print(nums)
-                # input()
             return np.take_along_axis(var, np.argmax(~pd.isna(var), axis=-1, keepdims=True), axis=-1).squeeze(axis=-1)
         else:
             raise DimRemoveExcpt("Can not remove dimension")
@@ -152,7 +145,7 @@ session_data["Max_n_neurons_session"] = idxmax
 print(session_data)
 signals = signals[["time_representation_path", "has_entry", "sig_fs", "Start"]]
 
-def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None):
+def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False):
     if name is None and not out_folder is None:
         progress = tqdm.tqdm(desc=f"Computing {out_folder}", total=float(path.count()))
     elif not name is None:
@@ -161,6 +154,10 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
         progress = tqdm.tqdm(desc=f"Computing", total=float(path.count()))
     def subapply(path, *args):
         if not pd.isna(path):
+            if not out_folder is None and not recompute:
+                dest: pathlib.Path = pathlib.Path(out_folder)/path
+                if dest.exists():
+                    return str(dest)
             in_path: pathlib.Path  = pathlib.Path(in_folder)/path
             match in_path.suffix:
                 case  ".pkl":
@@ -171,8 +168,8 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                     raise Exception("Unknown extension")
             ret = func(data, *args)
             progress.update(1)
-            if not out_folder is None:
-                dest = pathlib.Path(out_folder)/path
+            if not out_folder is None and not np.isnan(ret).all():
+                dest.parent.mkdir(exist_ok=True, parents=True)
                 pickle.dump(ret, dest.open("wb"))
                 return str(dest)
             else:
@@ -181,7 +178,15 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
             return path
     return xr.apply_ufunc(subapply, path, *args, vectorize=True)
 
-signals["time_representation_path"] = apply_file_func(lambda arr, fs: arr.size/fs if isinstance(arr, np.ndarray) else np.nan, data_path, signals["time_representation_path"], signals["sig_fs"])
+signals["Duration"] = apply_file_func(lambda arr, fs: arr.size/fs if isinstance(arr, np.ndarray) else np.nan, data_path, signals["time_representation_path"], signals["sig_fs"], name="duration")
+def mk_sig_time_representation(arr, start, fs):
+    if not isinstance(arr, np.ndarray):
+        return np.nan
+    s = pd.Series(arr, index=np.arange(arr.size) / fs + start)
+    return xr.DataArray.from_series(s)
+
+signals["time_representation_path"] = apply_file_func(mk_sig_time_representation, data_path, signals["time_representation_path"], signals["Start"], signals["sig_fs"], out_folder = "./time_repr", name="time_repr")
+signals.to_netcdf("signals.nc")
 print(signals)
 exit()
 
