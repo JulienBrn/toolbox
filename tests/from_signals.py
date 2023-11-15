@@ -36,6 +36,8 @@ signals["Date"] = signals["Date"].str.replace("_", "")
 signals["Date"] = np.where(signals["Date"].str.len()<8,"20"+ signals["Date"].str.slice(0, 6), signals["Date"])
 signals["Date"] = pd.to_datetime( signals["Date"], format="%Y%m%d", exact=True)
 
+signals["Duration"] = pd.to_numeric(signals["Duration"], errors="coerce")
+
 def get_set(x:str):
     import ast
     try:
@@ -91,7 +93,7 @@ if len(signals.loc[signals.index.duplicated(keep=False)].index) != 0:
 
 
 signals: xr.Dataset = xr.Dataset.from_dataframe(signals)
-signals = signals.drop_vars(["column", "signal_resampled", "input_signal_type", "input_signal", "input_signal_fs", 'nb_units_discarded', "End", "Duration", "max_spike_time", "unit_id"])
+signals = signals.drop_vars(["column", "signal_resampled", "input_signal_type", "input_signal", "input_signal_fs", 'nb_units_discarded', "End", "max_spike_time", "unit_id"])
 
 auto_remove_dim(signals)
 
@@ -115,6 +117,7 @@ signals = signals.where(~signals["has_data_but_no_bua"], drop=True)
 signals = signals.drop_vars("has_data_but_no_bua")
 metadata = signals.drop_vars(["time_representation_path"])
 signals = signals[["time_representation_path"]]
+print(metadata)
 print(signals)
 signals.to_netcdf("signals.nc")
 metadata.to_netcdf("metadata.nc")
