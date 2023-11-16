@@ -6,7 +6,7 @@ import matplotlib as mpl, seaborn as sns
 from scipy.stats import gaussian_kde
 import math, itertools, pickle, logging, beautifullogger
 from autosave import Autosave
-from xarray_helper import apply_file_func, auto_remove_dim
+from xarray_helper import apply_file_func, auto_remove_dim, nunique
 
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,21 @@ data_path = pathlib.Path("/home/julien/Documents/all_signals_resampled/")
 signals: pd.DataFrame = toolbox.df_loader.load(data_path/"database.tsv")
 metadata: pd.DataFrame = toolbox.df_loader.load(data_path/"metadata.tsv")
 signals = signals.merge(metadata)
+signals = signals.loc[signals["signal_resampled_type"]!="spike_bins"].copy()
+spikes_metadata = toolbox.df_loader.load(data_path/"spikes_data_metadata.tsv")
+spikes_metadata.drop(columns=['diff_duration_error', 'spike_bins_fs', "min_nb", "spike_bins_signal"], inplace=True)
+spikes_metadata["signal_resampled_type"] = "spike_times"
+spikes_metadata["signal_resampled_fs"] = spikes_metadata["input_signal_fs"]
+spikes_data = toolbox.df_loader.load(data_path/"spikes_database.tsv")
+spikes_data = spikes_data.merge(spikes_metadata)
+spikes_data["signal_resampled_fs"] = np.where(spikes_data["signal_resampled_fs"].str.contains("Rec"), 48076.92337036133, spikes_data["signal_resampled_fs"]).astype(float)
+
+# print(spikes_data[["Species", "signal_resampled_fs", "Date"]])
+# print(set(signals.columns.to_list()) ^  set(spikes_data.columns.to_list()))
+# print(set(signals.columns.to_list()) -  set(spikes_data.columns.to_list()))
+# exit()
+signals = pd.concat([signals, spikes_data])
+
 signals["CorticalState"] = signals["Species"].apply(lambda x: "Anesthetized" if x=="Rat" else "Awake" if x=="Human" else "Awake" if x=="Monkey" else "Unknown")
 signals["Condition"] = np.where(signals["Healthy"] ==True, "Control",
                        np.where(signals["Species"] =="Monkey", "mptp",
@@ -78,7 +93,7 @@ tqdm.tqdm.pandas(desc="Making contact/sig_preprocessing dimensions")
 signals["Subject"] = signals["Subject"].fillna("Unknown")
 signals["Contact"] = signals.groupby(["Species", "Subject","Session","Structure", "Contact"]).ngroup()
 signals: pd.DataFrame = signals.groupby("Contact", dropna=False).progress_apply(lambda d: compute_id(d, "Unit", "unit_id")).reset_index(drop=True)
-signals["sig_preprocessing"] = np.where(signals["signal_resampled_type"]=="spike_bins", "neuron_" + signals["unit_id"].astype(str),signals["signal_resampled_type"])    
+signals["sig_preprocessing"] = np.where(signals["signal_resampled_type"]=="spike_times", "neuron_" + signals["unit_id"].astype(str),signals["signal_resampled_type"])    
 
 
 signals.rename(columns=dict(signal_resampled_type="sig_type", input_signal_path="signal_file_source", path="time_representation_path", signal_resampled_fs="sig_fs"), inplace=True)
@@ -99,15 +114,22 @@ auto_remove_dim(signals)
 
 
 signals = signals.set_coords(["Species", "FullStructure", "Structure", "Condition", "Subject", "Session", "Date", "CorticalState", "Healthy", "sig_type",])
+# signals["raw_fs"] = signals["input_signal_fs"].sel(sig_preprocessing="bua")
+# signals["spike_fs"] = signals["sig_fs"].sel(sig_preprocessing="neuron_0")
+# signals["pathn0"] = signals["time_representation_path"].sel(sig_preprocessing="neuron_0")
+# print(signals[["raw_fs", "spike_fs", "pathn0"]].to_dataframe())
 
-
-def mk_sig_time_representation(arr, start, fs):
+def mk_sig_time_representation(arr, start, fs, sig_type):
     if not isinstance(arr, np.ndarray):
         return np.nan
-    s = pd.Series(arr, index=np.arange(arr.size) / fs + start)
-    return xr.DataArray.from_series(s)
+    if sig_type == "spike_times":
+        ret = arr/fs + start
+        return ret
+    else:
+        s = pd.Series(arr, index=np.arange(arr.size) / fs + start)
+        return xr.DataArray.from_series(s)
 
-signals["time_representation_path"] = apply_file_func(mk_sig_time_representation, data_path, signals["time_representation_path"], signals["Start"], signals["sig_fs"], out_folder = "./time_repr", name="time_repr")
+signals["time_representation_path"] = apply_file_func(mk_sig_time_representation, data_path, signals["time_representation_path"], signals["Start"], signals["sig_fs"], signals["sig_type"], out_folder = "./time_repr", name="time_repr")
 signals["has_entry"] = xr.apply_ufunc(lambda x: ~pd.isna(x), signals["time_representation_path"])
 signals = signals.set_coords("has_entry")
 signals["has_data_but_no_bua"] = signals["has_entry"].max(dim="sig_preprocessing") &  (~signals["has_entry"].sel(sig_preprocessing="bua"))
