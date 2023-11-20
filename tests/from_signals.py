@@ -126,8 +126,14 @@ def mk_sig_time_representation(arr, start, fs, sig_type):
         ret = arr/fs + start
         return ret
     else:
-        s = pd.Series(arr, index=np.arange(arr.size) / fs + start)
-        return xr.DataArray.from_series(s)
+        # s = pd.Series(arr, index=np.arange(arr.size) / fs + start)
+        # ret = xr.Dataset()
+        # ret["amplitude"] = xr.DataArray(arr, dims=["t"], coords=[np.arange(arr.size) / fs + start])
+        # ret["fs"] = fs
+        # print(ret)
+        # input()
+        # return ret
+        return xr.DataArray(arr, dims=["t"], coords=[np.arange(arr.size) / fs + start])
 
 signals["time_representation_path"] = apply_file_func(mk_sig_time_representation, data_path, signals["time_representation_path"], signals["Start"], signals["sig_fs"], signals["sig_type"], out_folder = "./time_repr", name="time_repr")
 signals["has_entry"] = xr.apply_ufunc(lambda x: ~pd.isna(x), signals["time_representation_path"])

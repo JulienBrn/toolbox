@@ -10,12 +10,7 @@ from autosave import Autosave
 class DimRemoveExcpt(Exception):pass
 
 def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None):
-    if name is None and not out_folder is None:
-        progress = tqdm.tqdm(desc=f"Computing {out_folder}", total=float(path.count()))
-    elif not name is None:
-        progress = tqdm.tqdm(desc=f"Computing {name}", total=float(path.count()))
-    else:
-        progress = tqdm.tqdm(desc=f"Computing", total=float(path.count()))
+    
     def subapply(path, *args):
         if not pd.isna(path) and not path == "":
             if not out_folder is None:
@@ -45,6 +40,12 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
         group_path = pathlib.Path(save_group)
         if group_path.exists() and not recompute:
             return pickle.load(group_path.open("rb"))
+    if name is None and not out_folder is None:
+        progress = tqdm.tqdm(desc=f"Computing {out_folder}", total=float(path.count()))
+    elif not name is None:
+        progress = tqdm.tqdm(desc=f"Computing {name}", total=float(path.count()))
+    else:
+        progress = tqdm.tqdm(desc=f"Computing", total=float(path.count()))
     res = xr.apply_ufunc(subapply, path, *args, vectorize=True, output_dtypes=None if out_folder is None else [object])
     if not save_group is None:
         pickle.dump(res, group_path.open("wb"))
@@ -61,7 +62,7 @@ def nunique(a, axis, to_str=False):
             return np.ma.filled((diffs!=0).sum(axis=axis)+1, 1)
 
 
-def auto_remove_dim(dataset:xr.Dataset):
+def auto_remove_dim(dataset:xr.Dataset, ignored_vars=[]):
     def remove_numpy_dim(var: np.ndarray):
         nums = nunique(var, axis=-1, to_str=True)
         if (nums==1).all():
@@ -71,9 +72,15 @@ def auto_remove_dim(dataset:xr.Dataset):
         
     ndataset = dataset
     for var in tqdm.tqdm(list(dataset.keys())+list(dataset.coords), desc="fit var dims"):
+        if var in ignored_vars:
+            ndataset[var] = dataset[var]
+            continue
         for dim in ndataset[var].dims:
             try:
                 ndataset[var] = xr.apply_ufunc(remove_numpy_dim, dataset[var], input_core_dims=[[dim]])
             except DimRemoveExcpt:
                 pass
+            except Exception as e:
+                e.add_note(f"Problem while auto remove dim of variable={var}")
+                raise e
     return ndataset
