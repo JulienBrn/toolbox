@@ -368,24 +368,24 @@ def main(spectrogram):
     tqdm.tqdm.pandas(desc="Computing")
     counts = get_counts(spectrogram)
     pwelch = get_pwelch(spectrogram)
-    band_spectrogram= get_band_spectrogram(spectrogram)
-    kde = get_kde(band_spectrogram)
-    dist_fit, dist_fit_plot = get_band_dist_fit(band_spectrogram)
-    band_distribution = get_band_distribution(band_spectrogram)
-    thresholds = get_thresholds(band_distribution)
+    # band_spectrogram= get_band_spectrogram(spectrogram)
+    # kde = get_kde(band_spectrogram)
+    # dist_fit, dist_fit_plot = get_band_dist_fit(band_spectrogram)
+    # band_distribution = get_band_distribution(band_spectrogram)
+    # thresholds = get_thresholds(band_distribution)
     
-    burst_properties = get_burst_properties(band_spectrogram, thresholds)
-    burst_group_info = get_burst_group_info(burst_properties)
-    burst_sig_info = get_burst_sig_info(burst_properties)
+    # burst_properties = get_burst_properties(band_spectrogram, thresholds)
+    # burst_group_info = get_burst_group_info(burst_properties)
+    # burst_sig_info = get_burst_sig_info(burst_properties)
     # dist_ex = dist_examples(band_spectrogram)
     # burst_spectrogram = get_burst_spectrogram(spectrogram, burst_properties)
     logger.info("Plotting")
     plot_pwelch(pwelch, counts)
-    plot_kde(kde, dist_fit_plot)
-    plot_band_distribution(band_distribution, thresholds)
+    # plot_kde(kde, dist_fit_plot)
+    # plot_band_distribution(band_distribution, thresholds)
     # plot_sig_examples(band_spectrogram, thresholds)
-    plot_group_info(burst_group_info)
-    plot_burst_sig_info(burst_sig_info)
+    # plot_group_info(burst_group_info)
+    # plot_burst_sig_info(burst_sig_info)
     plt.show()
 
 def plot_group_info(burst_group_info: pd.DataFrame):
@@ -437,7 +437,7 @@ def plot_burst_sig_info(burst_sig_info: pd.DataFrame):
 
 def plot_pwelch(pwelch, counts):
     
-    pwelch=pwelch[pwelch.index.get_level_values("agg_type").isin(["median(t, sig_num)","mean(t, sig_num)"])]
+    pwelch=pwelch[pwelch.index.get_level_values("agg_type").isin(["mean(t, sig_num)"])]
     pwelch = merge(pwelch, counts).reset_index()
     pwelch=pwelch.loc[pwelch["freq"] < 45].copy()
     pwelch["window_count"] = pwelch["window_count"].apply(lambda x: f"~{10 ** np.round(np.log10(x))}")
@@ -446,8 +446,8 @@ def plot_pwelch(pwelch, counts):
     sig_sizes = pwelch["sig_count"].drop_duplicates().sort_values(ascending=False).to_list()
 
     pwelch_figs = toolbox.FigurePlot(data=pwelch, 
-        figures="sig_type", fig_title="Pwelch sig_type={sig_type}", 
-        col="agg_type", row="Structure", row_order=structure_order, 
+        figures="sig_type", fig_title="Pwelch sig_type={sig_type}, {agg_type}", 
+        col="Species", row="Structure", row_order=structure_order, col_order=species_order,
         aspect=2, margin_titles=True
     )
     # pwelch_figs.map(sns.scatterplot, x="freq", y="spectral_power",  
@@ -456,9 +456,9 @@ def plot_pwelch(pwelch, counts):
     #     edgecolor="black"
     # )
     pwelch_figs.map(sns.lineplot, x="freq", y="spectral_power",  
-        hue="Species", hue_order = species_order,
+        # hue="Species", hue_order = species_order,
         style="Condition", dashes=[(1, 0), (1, 2)], style_order=condition_order,
-        size="sig_count", size_order=sig_sizes
+        # size="sig_count", size_order=sig_sizes
     )
     pwelch_figs.tight_layout().add_legend()
 
