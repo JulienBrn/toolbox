@@ -51,30 +51,139 @@ signals["n_spikes/s"] = signals["n_spikes"]/signals["spike_duration"]
 signals["n_data_points"] = apply_file_func(lambda arr: float(arr.size), ".", signals["time_representation_path"], name="n_datapoints", save_group="./n_datapoints.pkl")
 signals["_diff"] = (signals["bua_duration"] - signals["spike_duration"])
 
-def compute_cwt(a, sig_type):
-    import pywt
-    if sig_type=="spike_times":
-        fs=1000
-        min = round(np.max(np.min(a)-0.002, 0), 3)
-        max = round(np.max(a)+0.002, 3)
-        arr = np.zeros(int((max-min)*fs) +1)
-        np.add.at(arr, ((a - min)*fs).astype(int), 1)
-        a=xr.DataArray(arr, dims="t", coords=[np.linspace(min, max, arr.size, endpoint=True)])
+def resample_arr(a: xr.DataArray, dim: str, new_fs: float, position="centered", new_dim_name=None,*, mean_kwargs={}, return_counts=False):
+    if new_dim_name is None:
+        new_dim_name = f"{dim}_bins"
+    match position:
+        case "centered":
+            a["new_fs_index"] = np.round(a[dim]*new_fs+1/(1000*new_fs))
+        case "start":
+            a["new_fs_index"] = (a[dim]*new_fs).astype(int)
+    grp = a.groupby("new_fs_index")
+    binned = grp.mean(dim, **mean_kwargs)
+    binned = binned.rename(new_fs_index=new_dim_name)
+    binned[new_dim_name] = binned[new_dim_name]/new_fs
+    
+    if return_counts:
+        counts = grp.count(dim)
+        counts= counts.rename(new_fs_index=new_dim_name)
+        counts[new_dim_name] = counts[new_dim_name]/new_fs
+        return binned, counts
     else:
-        test = a["t"].to_numpy()
-        fs = np.diff(test)[0]
-        if not (np.abs(np.diff(test)-fs) < 0.000001).all():
-            print(fs, np.diff(test))
-            err_index = np.argmax((np.diff(test)!=fs))
-            raise Exception(f"Signal does not have a constant fs got {test[0:3]} and {test[err_index-1:err_index+1]}")
-        else:
-            fs=1/fs
-    try:
-        scales = pywt.frequency2scale('cmor1.5-1.0', np.arange(5, 50)/float(fs))
-        coefs, _ = pywt.cwt(a, scales, 'cmor1.5-1.0')
-    except:
-        logger.error(f"Problem with fs={fs}")
-        raise
+        return binned
+    
+def sampled_arr_from_events(a: np.array, fs: float, weights=1):
+    if len(a.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {a.shape}")
+    m=np.round(np.min(a)*fs)
+    M=np.round(np.max(a)*fs)
+    n = int(M-m + 1)
+    res = np.zeros(n)
+    np.add.at(res, np.round(a*fs).astype(int) - int(m), weights)
+    return res, m/fs
+
+def sum_shifted(a: np.array, kernel: np.array):
+    if len(a.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {a.shape}")
+    if len(kernel.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {kernel.shape}")
+    if kernel.size % 2 !=1:
+        raise Exception(f"Kernel must have odd size {kernel.size}")
+    roll = int(np.floor(kernel.size/2))
+    a = np.concatenate([np.zeros(roll), a, np.zeros(roll)])
+    # kernel = np.concatenate([kernel, np.zeros(a.size - kernel.size)])
+    res = np.zeros(a.size)
+    for i in range(-roll, roll+1):
+        res = res + np.roll(a,i)*kernel[i+roll]
+    return res
+
+
+    
+def compute_cwt(a, sig_type, pre_cwt_fs, final_fs, plot=False, paths=[]):
+    import pycwt
+    if plot:
+        f,[ax_in, ax_out] = plt.subplots(2,sharex=True)
+        f.suptitle(f"Computation of wavelets for {paths}", size="small")
+        ax_in_leg=[]
+    if sig_type=="spike_times":
+        if plot:
+            ax_ev = ax_in.twinx()
+            ax_in_leg=ax_in_leg+ax_ev.eventplot(a, color="pink",label="spike times")
+        a, start = sampled_arr_from_events(a, pre_cwt_fs)
+        
+        # kernel_size=int(np.round(2000/400)*2+1)
+        # kernel = np.linspace(-2, 2, kernel_size, endpoint=True)
+        # kernel = np.exp(-(kernel**2))
+        # final = sum_shifted(a, kernel)
+        a=xr.DataArray(a, dims="t", coords=[start + (np.arange(a.size))/pre_cwt_fs])
+        
+        # # print(ar)
+        # ar = resample_arr(ar, "t", pre_cwt_fs)
+        
+        # plt.eventplot(beg, color="C6",label="spike times")
+        # plt.plot(start + np.arange(a.size)/250, a, label="continuous spike")
+        # # plt.plot(start + (np.arange(final.size)- np.floor(kernel.size/2))/2000 , final, label="spike kernel")
+        # # plt.plot(ar["t_bins"], ar, label="spike kernel resampled")
+        # plt.legend()
+        # plt.show()
+        # exit()
+        # fs=1000
+        # min = round(np.max(np.min(a)-0.002, 0), 3)
+        # max = round(np.max(a)+0.002, 3)
+        # arr = np.zeros(int((max-min)*fs) +1)
+        # np.add.at(arr, ((a - min)*fs).astype(int), 1)
+        
+        # return 2
+    else:
+        a,counts = resample_arr(a, "t", pre_cwt_fs, return_counts=True, new_dim_name="t")
+        a=a.where(counts==counts.max("t"), drop=True)
+    if plot:
+        ax_in.set_title(f"Input data before normalization downsampled to {pre_cwt_fs}")
+        ax_in_leg=ax_in_leg+a.plot(ax=ax_in, label="Resampled data given to cwt before z-score")
+        print(type(ax_in_leg[0]))
+        ax_in.legend(ax_in_leg, [l.get_label() for l in ax_in_leg])
+    data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(normalize(a).to_numpy(), 1/pre_cwt_fs, s0=0.02, J=45)
+    res = xr.DataArray(data=data, dims=["f", "t"], coords=dict(
+        t=a["t"],
+        scales=("f", scales), f=("f", freqs),
+        coi=("t", coi)
+    ))
+    # print(res)
+    unresampled=res
+    res = resample_arr(res, "t", final_fs, new_dim_name="t")
+    res["coi"] = resample_arr(unresampled["coi"], "t", final_fs, new_dim_name="t")
+    # print(res)
+    
+    if plot:
+        ax_out.set_title(f"Outputtime/freq representation downsampled to {final_fs}")
+        np.abs(res).plot(ax=ax_out, add_colorbar=False)
+        (1/res["coi"]).plot(ax=ax_out, color="red", label="cone of influence")
+        # axs[1].plot(res["t"], 1/res["coi"], color="red")
+        ax_out.legend()
+        f.tight_layout()
+        figManager = plt.get_current_fig_manager()
+        figManager.window.showMaximized()
+        plt.show()
+    return res
+    print(res)
+    # print(a.shape, data.shape, freqs.shape)
+    # print(freqs)
+    exit()
+    # test = a["t"].to_numpy()
+    # step = np.diff(test)[0]
+    # if not (np.abs(np.diff(test)-step) < 0.000001).all():
+    #     # print(fs, np.diff(test))
+    #     err_index = np.argmax((np.diff(test)!=step))
+    #     raise Exception(f"Signal does not have a constant fs got {test[0:3]} and {test[err_index-1:err_index+1]}")
+    # else:
+    #     fs=1/step
+    # try:
+    #     data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(a, 1/pre_cwt_fs, s0=50)
+    #     scales = pywt.frequency2scale('cmor1.5-1.0', np.arange(5, 50)/float(fs))
+    #     coefs, _ = pywt.cwt(a, scales, 'cmor1.5-1.0')
+    # except:
+    #     logger.error(f"Problem with fs={fs}")
+    #     raise
     
     res= xr.DataArray(coefs, dims=["f", "t"], coords=[np.arange(5, 50), a["t"]])
     (s, e) = float(res["t"].min()), float(res["t"].max())
@@ -94,10 +203,16 @@ def test(a):
     # print(len(a.indexes))
     exit()
 
+def normalize(a: xr.DataArray):
+    std = a.std()
+    a_normal = (a - a.mean()) / std
+    return a_normal
+
+
 # print(signals.indexes)
 # signals["test"] = apply_file_func(test, ".", signals["time_representation_path"])
-signals["cwt_path"] = apply_file_func(compute_cwt, ".", signals["time_representation_path"], signals["sig_type"], out_folder="./cwt", name="cwt")
-signals["time_freq_repr"] = apply_file_func(lambda a: np.abs(a * np.conj(a)), ".", signals["cwt_path"], out_folder="./tf_repr", name="time_freq_representation")
+signals["cwt_path"] = apply_file_func(compute_cwt, ".", signals["time_representation_path"], signals["sig_type"], 250, 50, out_folder="./cwt", name="cwt", path_arg="paths")
+# signals["time_freq_repr"] = apply_file_func(lambda a: np.abs(a * np.conj(a)), ".", signals["cwt_path"], out_folder="./tf_repr", name="time_freq_representation")
 print(signals)
 if not pathlib.Path("pair_signals.pkl").exists():
 # if True:
@@ -273,15 +388,15 @@ def get_values(a):
     # exit()
     return res
 
-all_progress = tqdm.tqdm(desc="Extracting", total=float(len(signals["time_freq_repr"].groupby("group_index"))))
-grouped_results["time_freq_repr_values"] = signals["time_freq_repr"].groupby("group_index").map(get_values).unstack()
+# all_progress = tqdm.tqdm(desc="Extracting", total=float(len(signals["time_freq_repr"].groupby("group_index"))))
+# grouped_results["time_freq_repr_values"] = signals["time_freq_repr"].groupby("group_index").map(get_values).unstack()
 
-grouped_results["pwelch"] = apply_file_func(lambda x: x.mean(), ".", grouped_results["time_freq_repr_values"], save_group="./pwelch.pkl", name="welch")
+# grouped_results["pwelch"] = apply_file_func(lambda x: x.mean(), ".", grouped_results["time_freq_repr_values"], save_group="./pwelch.pkl", name="welch")
 
 print(grouped_results)
 
-welch = grouped_results["pwelch"].plot(x="f", hue="Species", style="Healthy", row="Structure", col="sig_preprocessing")
-plt.show()
+# welch = grouped_results["pwelch"].plot(x="f", hue="Species", style="Healthy", row="Structure", col="sig_preprocessing")
+# plt.show()
 
 
 
@@ -311,7 +426,7 @@ print(grouped_results.drop_vars(["CorticalState", "FullStructure", "Condition"])
 
 ##### Now, let's plot the data
 
-basic_data = grouped_results.drop_dims("bins").to_array("info", name="counts").to_dataframe().sort_index(level=["Species", "Structure", "Healthy"]).reset_index("Healthy", drop=True).set_index("Condition", append=True)
+basic_data = grouped_results.to_array("info", name="counts").to_dataframe().sort_index(level=["Species", "Structure", "Healthy"]).reset_index("Healthy", drop=True).set_index("Condition", append=True)
 maxes=basic_data["counts"].groupby("info").max()
 # basic_data["counts"] = basic_data["counts"]/maxes
 basic_data["group"] = [str(x[1:]) for x in basic_data.index.values]

@@ -9,7 +9,7 @@ from autosave import Autosave
 
 class DimRemoveExcpt(Exception):pass
 
-def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1):
+def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None):
     def subapply(*args):
         paths=list(args[:n])
         args=args[n:]
@@ -31,7 +31,10 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                         data.append(toolbox.np_loader.load(in_path))
                     case ext:
                         raise Exception(f"Unknown extension {ext} for {in_path} from {path}")
-            ret = func(*data, *args)
+            if path_arg is None:
+                ret = func(*data, *args)
+            else:
+                ret = func(*data, *args, **{path_arg:paths})
             progress.update(1)
             if not out_folder is None and not np.isnan(ret).all():
                 dest.parent.mkdir(exist_ok=True, parents=True)
