@@ -26,7 +26,7 @@ class RegularIndex(xr.Index):
         return xr.IndexSelResult(dim_indexers={dim:n})
     
     def create_variables(self, variables: Mapping[Any, Variable] | None = None) -> IndexVars:
-        return {"t":xr.Variable("t", np.array([]))}
+        return {"t":xr.IndexVariable("t", np.array([]))}
         # print("called")
         # return {"t": xr.Variable(dims="t", data = self.as_array())}
 
