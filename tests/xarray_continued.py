@@ -9,6 +9,19 @@ from autosave import Autosave
 from xarray_helper import apply_file_func, auto_remove_dim, nunique
 
 
+# def test(a, b, c, d):
+#     print(a)
+#     print(b)
+#     print(c)
+#     print(d)
+#     return [[0,1], [1,2]]
+
+# ar_test=xr.DataArray(data=[[0,1], [1,2]], dims=["x", "y"])
+# ar_test2=xr.DataArray(data=[0,1], dims=["y"])
+# ar_test3=xr.DataArray(data=[4,3], dims=["x"])
+# xr.apply_ufunc(test, ar_test, ar_test3, ar_test2, 3)
+# exit()
+
 logger = logging.getLogger(__name__)
 beautifullogger.setup(displayLevel=logging.INFO)
 tqdm.tqdm.pandas(desc="Computing")
@@ -110,37 +123,14 @@ def compute_cwt(a, sig_type, pre_cwt_fs, final_fs, plot=False, paths=[]):
             ax_ev = ax_in.twinx()
             ax_in_leg=ax_in_leg+ax_ev.eventplot(a, color="pink",label="spike times")
         a, start = sampled_arr_from_events(a, pre_cwt_fs)
-        
-        # kernel_size=int(np.round(2000/400)*2+1)
-        # kernel = np.linspace(-2, 2, kernel_size, endpoint=True)
-        # kernel = np.exp(-(kernel**2))
-        # final = sum_shifted(a, kernel)
         a=xr.DataArray(a, dims="t", coords=[start + (np.arange(a.size))/pre_cwt_fs])
-        
-        # # print(ar)
-        # ar = resample_arr(ar, "t", pre_cwt_fs)
-        
-        # plt.eventplot(beg, color="C6",label="spike times")
-        # plt.plot(start + np.arange(a.size)/250, a, label="continuous spike")
-        # # plt.plot(start + (np.arange(final.size)- np.floor(kernel.size/2))/2000 , final, label="spike kernel")
-        # # plt.plot(ar["t_bins"], ar, label="spike kernel resampled")
-        # plt.legend()
-        # plt.show()
-        # exit()
-        # fs=1000
-        # min = round(np.max(np.min(a)-0.002, 0), 3)
-        # max = round(np.max(a)+0.002, 3)
-        # arr = np.zeros(int((max-min)*fs) +1)
-        # np.add.at(arr, ((a - min)*fs).astype(int), 1)
-        
-        # return 2
     else:
         a,counts = resample_arr(a, "t", pre_cwt_fs, return_counts=True, new_dim_name="t")
         a=a.where(counts==counts.max("t"), drop=True)
     if plot:
         ax_in.set_title(f"Input data before normalization downsampled to {pre_cwt_fs}")
         ax_in_leg=ax_in_leg+a.plot(ax=ax_in, label="Resampled data given to cwt before z-score")
-        print(type(ax_in_leg[0]))
+        # print(type(ax_in_leg[0]))
         ax_in.legend(ax_in_leg, [l.get_label() for l in ax_in_leg])
     data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(normalize(a).to_numpy(), 1/pre_cwt_fs, s0=0.02, J=45)
     res = xr.DataArray(data=data, dims=["f", "t"], coords=dict(
@@ -165,33 +155,105 @@ def compute_cwt(a, sig_type, pre_cwt_fs, final_fs, plot=False, paths=[]):
         figManager.window.showMaximized()
         plt.show()
     return res
-    print(res)
-    # print(a.shape, data.shape, freqs.shape)
-    # print(freqs)
-    exit()
-    # test = a["t"].to_numpy()
-    # step = np.diff(test)[0]
-    # if not (np.abs(np.diff(test)-step) < 0.000001).all():
-    #     # print(fs, np.diff(test))
-    #     err_index = np.argmax((np.diff(test)!=step))
-    #     raise Exception(f"Signal does not have a constant fs got {test[0:3]} and {test[err_index-1:err_index+1]}")
-    # else:
-    #     fs=1/step
-    # try:
-    #     data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(a, 1/pre_cwt_fs, s0=50)
-    #     scales = pywt.frequency2scale('cmor1.5-1.0', np.arange(5, 50)/float(fs))
-    #     coefs, _ = pywt.cwt(a, scales, 'cmor1.5-1.0')
-    # except:
-    #     logger.error(f"Problem with fs={fs}")
-    #     raise
+
+def compute_coherence(a: xr.DataArray,b: xr.DataArray,ta: xr.DataArray, tb: xr.DataArray, s1, s2, pre_cwt_fs, final_fs, plot=True):
+    import pycwt
+    if plot:
+        f,[ax_a, ax_b, ax_out, ax_out_phase] = plt.subplots(4,sharex=True)
+        ax_a.set_title(f"cwt for a")
+        ax_b.set_title(f"cwt for b")
+        np.abs(a).plot(ax=ax_a, add_colorbar=False)
+        np.abs(b).plot(ax=ax_b, add_colorbar=False)
+        (1/a["coi"]).plot(ax=ax_a, color="red", label="cone of influence")
+        (1/b["coi"]).plot(ax=ax_b, color="red", label="cone of influence")
     
-    res= xr.DataArray(coefs, dims=["f", "t"], coords=[np.arange(5, 50), a["t"]])
-    (s, e) = float(res["t"].min()), float(res["t"].max())
-    res = res.groupby_bins("t", bins=np.linspace(s, e, int((e-s)*50))).mean()
-    res = res.rename(t_bins="t")
-    # print(res)
-    # exit()
-    return res
+    # a.name = "wa"
+    # b.name="wb"
+    # a = a.rename(dict(coi="coi_a"))
+    # b = b.rename(dict(coi="coi_b"))
+
+    # r = xr.merge([a, b], join="inner")
+
+    ############### This method does not work..... #####################
+
+    # r["coi"] = np.minimum(r["coi_a"], r["coi_b"])
+    # r = r.drop_vars(["coi_a", "coi_b"])
+    # r["wab"] = (r["wa"] * np.conj(r["wb"]))
+
+    # wavelet = pycwt.wavelet._check_parameter_wavelet("morlet")
+    # S1 = wavelet.smooth(np.abs((r["wa"]) ** 2 / r["scales"]).to_numpy(), 0.02, 0.02, r["scales"].to_numpy())
+    # S2 = wavelet.smooth(np.abs((r["wb"]) ** 2 / r["scales"]).to_numpy(), 0.02, 0.02, r["scales"].to_numpy())
+    # S12 = wavelet.smooth((np.abs(r["wab"]) / r["scales"]).to_numpy(), 0.02, 0.02, r["scales"].to_numpy())
+    # r["wct"] = xr.DataArray(data=np.abs(S12) ** 2 / (S1 * S2), dims=("f", "t"))
+    
+    ############### Using basic method ############################
+    # print(ta)
+    # print(tb)
+    amin, amax = (ta["t"].min(), ta["t"].max()) if not s1=="spike_times" else (np.min(ta), np.max(ta))
+    bmin, bmax = (tb["t"].min(), tb["t"].max()) if not s2=="spike_times" else (np.min(tb), np.max(tb))
+    if amin > bmax or bmin > amax:
+        return np.nan
+    ars = []
+    for a, sig_type in zip([ta, tb], [s1, s2]):
+        if sig_type=="spike_times":
+            a, start = sampled_arr_from_events(a, pre_cwt_fs)
+            a=xr.DataArray(a, dims="t", coords=[start + (np.arange(a.size))/pre_cwt_fs])
+        else:
+            a,counts = resample_arr(a, "t", pre_cwt_fs, return_counts=True, new_dim_name="t")
+            a=a.where(counts==counts.max("t"), drop=True)
+        a.name = ["a", "b"][len(ars)]
+        ars.append(a)
+    r2 = xr.merge(ars, join="inner")
+    if r2.sizes["t"] <10:
+        # print(ars[0])
+        # print(ars[1])
+        # print(r2)
+        # print("returning nan")
+        # exit()
+        return np.nan
+    WCT, aWCT, coi, freqs, significance = pycwt.wct(r2["a"].to_numpy(), r2["b"].to_numpy(), 1/pre_cwt_fs, s0=0.02, J=45, sig=False)
+    wct = xr.DataArray(data=WCT, dims=["f", "t"], coords=dict(
+        t=r2["t"],
+        f=("f", freqs)
+    ))
+    phase = xr.DataArray(data=aWCT, dims=["f", "t"], coords=dict(
+        t=r2["t"],
+        f=("f", freqs),
+    ))
+    coi = xr.DataArray(data=coi, dims=["t"], coords=dict(
+        t=r2["t"],
+    ))
+    r=xr.Dataset()
+    r["wct"] = resample_arr(wct, "t", final_fs, new_dim_name="t")
+    r["coi"] = resample_arr(coi, "t", final_fs, new_dim_name="t")
+    r["phase"] = resample_arr(phase, "t", final_fs, new_dim_name="t")
+    if plot:
+        r["wct"].plot(ax=ax_out, add_colorbar=False)
+        (1/r["coi"]).plot(ax=ax_out, color="red", label="cone of influence")
+        r["phase"].plot(ax=ax_out_phase, add_colorbar=False)
+        (1/r["coi"]).plot(ax=ax_out_phase, color="red", label="cone of influence")
+        f.tight_layout()
+        figManager = plt.get_current_fig_manager()
+        figManager.window.showMaximized()
+        plt.show()
+
+    
+    # r = r.drop_vars(["coi_a", "coi_b", "wa", "wb"])
+    return r
+
+    # a = a.to_dataset(name="a")
+    # b = b.to_dataset(name="b")
+    # print(a)
+    # print(b)
+    # a["t"] = xr.apply_ufunc(lambda x: np.round(x.left*50+0.00001)/50, a["t"], vectorize=True)
+    # b["t"] = xr.apply_ufunc(lambda x: np.round(x.left*50+0.00001)/50, b["t"], vectorize=True)
+    # tmp=xr.merge([a, b], join="inner")
+    # a = tmp["a"]
+    # b=tmp["b"]
+    # res = np.abs(a*np.conj(b))**2 / ((np.abs(a)**2)*(np.abs(b)**2))
+    # print(res.to_dataset(name="coherence"))
+    # input()
+    # return res
 
 def test(a):
     from regular_index import RegularIndex
@@ -208,15 +270,31 @@ def normalize(a: xr.DataArray):
     a_normal = (a - a.mean()) / std
     return a_normal
 
-
+def rotate_test(a: xr.DataArray, arr:str=None):
+    if not arr is None:
+        a = a[arr]
+    # print(a)
+    r = a.mean("t")
+    res = r.to_numpy(), r["f"].to_numpy()
+    # print(res)
+    # input()
+    return res
 # print(signals.indexes)
 # signals["test"] = apply_file_func(test, ".", signals["time_representation_path"])
 signals["cwt_path"] = apply_file_func(compute_cwt, ".", signals["time_representation_path"], signals["sig_type"], 250, 50, out_folder="./cwt", name="cwt", path_arg="paths")
-# signals["time_freq_repr"] = apply_file_func(lambda a: np.abs(a * np.conj(a)), ".", signals["cwt_path"], out_folder="./tf_repr", name="time_freq_representation")
+signals["time_freq_repr"] = apply_file_func(lambda a: np.abs(a * np.conj(a)), ".", signals["cwt_path"], out_folder="./tf_repr2", name="time_freq_representation")
+pwelch, freqs = apply_file_func(rotate_test, ".", signals["time_freq_repr"], name="rotate_test", n_ret=2, output_core_dims=[["f"], ["f"]], save_group="pwelch_sig.pkl")
+pwelch["freqs"] = freqs
+signals["pwelch"] = auto_remove_dim(pwelch.to_dataset(), kept_var=["freqs"])["time_freq_repr"]
+signals["f"] = signals["freqs"]
+signals = signals.drop_vars("freqs")
+# print(signals)
+# exit()
+
 print(signals)
 if not pathlib.Path("pair_signals.pkl").exists():
 # if True:
-    defined_signals = signals["cwt_path"].to_dataframe().reset_index()
+    defined_signals = signals[["cwt_path", "time_representation_path"]].to_dataframe().reset_index()
     defined_signals = defined_signals.loc[~pd.isna(defined_signals["cwt_path"])]
     defined_signals = defined_signals.drop(columns="has_entry")
     defined_signals = defined_signals.drop(columns=["group_index"])
@@ -241,29 +319,16 @@ if not pathlib.Path("pair_signals.pkl").exists():
     pickle.dump(pair_signals, open("pair_signals.pkl", "wb"))
 else:
     pair_signals = pickle.load(open("pair_signals.pkl", "rb"))
-print(pair_signals)
+# print(pair_signals)
 pair_signals["has_entry_1"] = xr.apply_ufunc(lambda x: ~pd.isna(x), pair_signals["cwt_path_1"])
 pair_signals["has_entry_2"] = xr.apply_ufunc(lambda x: ~pd.isna(x), pair_signals["cwt_path_2"])
 pair_signals["group_index"] = xr.DataArray(pd.MultiIndex.from_arrays([pair_signals[a].data for a in group_index_cols],names=group_index_cols), dims=['Contact_pair'], coords=[pair_signals["Contact_pair"]])
  
-pair_signals = pair_signals.set_coords([v for v in pair_signals.variables if not "cwt_path" in v])
+pair_signals = pair_signals.set_coords([v for v in pair_signals.variables if not "cwt_path" in v and not "time_representation_path" in v])
 pair_signals=pair_signals.where(((pair_signals["sig_type_1"] == "bua") & (pair_signals["sig_type_2"] == "spike_times")) | ((pair_signals["sig_type_2"] == "bua") & (pair_signals["sig_type_1"] == "spike_times")))
-print(pair_signals)
+# print(pair_signals)
 
-def compute_coherence(a: xr.DataArray,b: xr.DataArray):
-    a = a.to_dataset(name="a")
-    b = b.to_dataset(name="b")
-    print(a)
-    print(b)
-    a["t"] = xr.apply_ufunc(lambda x: np.round(x.left*50+0.00001)/50, a["t"], vectorize=True)
-    b["t"] = xr.apply_ufunc(lambda x: np.round(x.left*50+0.00001)/50, b["t"], vectorize=True)
-    tmp=xr.merge([a, b], join="inner")
-    a = tmp["a"]
-    b=tmp["b"]
-    res = np.abs(a*np.conj(b))**2 / ((np.abs(a)**2)*(np.abs(b)**2))
-    print(res.to_dataset(name="coherence"))
-    input()
-    return res
+
 
 # a= 0.036004337535534746+0.018279389420020897j
 # b = 98.23709725843953-769.0045991853731j
@@ -273,8 +338,42 @@ def compute_coherence(a: xr.DataArray,b: xr.DataArray):
 # print((np.abs(a*np.conj(b))**2) / ((np.abs(a)**2)*(np.abs(b)**2)))
 # exit()
 
-# pair_signals["coherence"] = apply_file_func(compute_coherence, ".", pair_signals["cwt_path_1"], pair_signals["cwt_path_2"], out_folder="./coherence", name="coherence", n=2)
-           
+def compute_inter_length(ta, tb, s1, s2):
+    amin, amax = (ta["t"].min(), ta["t"].max()) if not s1=="spike_times" else (np.min(ta), np.max(ta))
+    bmin, bmax = (tb["t"].min(), tb["t"].max()) if not s2=="spike_times" else (np.min(tb), np.max(tb))
+    if amin > bmax or bmin > amax:
+        return 0
+    else:
+        return min(amax,bmax) - max(amin, bmin)
+
+    
+pair_signals["intersection_length"] = apply_file_func(compute_inter_length, ".",
+    pair_signals["time_representation_path_1"], pair_signals["time_representation_path_2"],
+    pair_signals["sig_type_1"], pair_signals["sig_type_2"],
+    n=2, save_group="./intersection_length.pkl", name="intersection_length")
+
+# debug = pair_signals["intersection_length"].where(pair_signals["Species"]=="Rat", drop=True).where(pair_signals["Structure"]=="STR", drop=True).where(pair_signals["Healthy"]=="True", drop=True)
+# print(debug)
+# exit()
+pair_signals["coherence"] = apply_file_func(compute_coherence, ".", 
+    pair_signals["cwt_path_1"].where(pair_signals["intersection_length"] > 5), pair_signals["cwt_path_2"].where(pair_signals["intersection_length"] > 5), 
+    pair_signals["time_representation_path_1"].where(pair_signals["intersection_length"] > 5), pair_signals["time_representation_path_2"].where(pair_signals["intersection_length"] > 5),
+    pair_signals["sig_type_1"], pair_signals["sig_type_2"],
+    250, 50, False,
+    out_folder="./coherence", name="coherence", n=4,
+    save_group="./all_coherence.pkl")
+
+# print(pair_signals["coherence"])
+# exit()
+coherence_mean, freqs = apply_file_func(lambda x: rotate_test(x, "wct"), ".", pair_signals["coherence"], name="rotate_test", n_ret=2, output_core_dims=[["f"], ["f"]], save_group="coherence_mean.pkl")
+coherence_mean["freqs"] = freqs
+pair_signals["coherence_mean"] = auto_remove_dim(coherence_mean.to_dataset(), kept_var=["freqs"])["coherence"]
+
+pair_signals["f"] = pair_signals["freqs"]
+pair_signals = pair_signals.drop_vars("freqs")
+# print(pair_signals)
+
+# exit()
 # print(pair_signals.groupby(["Session"]).apply(lambda d: d.groupby(["Contact_1"]).ngroup()).max())
 # print(pair_signals.groupby(["Session"]).apply(lambda d: d.groupby(["Contact_2"]).ngroup()).max())
 # print(pair_signals.groupby(["Session"]).ngroup().max())
@@ -294,7 +393,15 @@ grouped_results["max_neuron_in_session"] = signals["has_entry"].where(~(signals[
 grouped_results["avg_bua_duration"] = signals["bua_duration"].groupby("group_index").map(lambda a: a.mean()).unstack()
 grouped_results["avg_spike_duration"] = signals["spike_duration"].groupby("group_index").map(lambda a: a.mean()).unstack()
 grouped_results["avg_n_spike/s"] = signals["n_spikes/s"].groupby("group_index").map(lambda a: a.mean()).unstack()
-
+grouped_results["pwelch"] = signals["pwelch"].groupby("group_index").mean().unstack().groupby("sig_type").mean()
+grouped_results["coherence_mean"] = pair_signals["coherence_mean"].groupby("group_index").mean().unstack().groupby("sig_type_1").mean().groupby("sig_type_2").mean()
+grouped_results["pwelch2"] = signals.groupby("group_index").map(lambda a: a["pwelch"].weighted(a["bua_duration"]).mean("Contact")).unstack().groupby("sig_type").mean()
+grouped_results["CoherencePairCounts"] = (pair_signals["intersection_length"] > 5).groupby("group_index").map(lambda a: a.sum()).unstack()
+# print(grouped_results["CoherencePairCounts"])
+# exit()
+# print(grouped_results["pwelch"])
+# print(grouped_results["pwelch2"])
+# exit()
 def get_values(a):
     global all_progress
     all_progress.update(1)
@@ -419,8 +526,11 @@ grouped_results["NBDurationDiff"] = signals["_diff"].groupby("group_index").map(
 # print(errors.loc[errors["signal_file_source"]=="File(CTL/A1/20051207/a07/GPe/Raw.mat)[pjx301a_Probe2, values]", :])
 # print(metadata)
 # print(grouped_results)
-grouped_results = grouped_results.drop_dims("bins")
-print(grouped_results.drop_vars(["CorticalState", "FullStructure", "Condition"]).to_dataframe().to_string())
+pwelch_df = grouped_results["pwelch"].to_dataframe()
+coherence_mean_df = grouped_results["coherence_mean"].sel(Structure="GPe").to_dataframe()
+pwelch2_df = grouped_results["pwelch2"].to_dataframe()
+grouped_results = grouped_results.drop_dims(["bins", "f", "sig_type", "sig_type_1", "sig_type_2"])
+# print(grouped_results.drop_vars(["CorticalState", "FullStructure", "Condition"]).to_dataframe().to_string())
 
 # print(grouped_results.to_dataframe())
 
@@ -433,10 +543,33 @@ basic_data["group"] = [str(x[1:]) for x in basic_data.index.values]
 
 import seaborn as sns
 
-g = sns.FacetGrid(data=basic_data.reset_index(), col="info", col_wrap=3, sharex=False, hue="Species", aspect=2).map_dataframe(sns.barplot, x="counts", y="group").tight_layout().add_legend()
-for ax in g.axes.flat:
-    ax.set_ylabel(None)
-g.figure.subplots_adjust(top=.9, bottom=0.05)
+
+# xr.plot.pcolormesh(signals["pwelch"].sel(sig_preprocessing="bua"),y="Contact", x="f")
+psig_data = signals["pwelch"].to_dataframe().reset_index()
+psig_data["SSH"] = psig_data["Species"].astype(str) + psig_data["Structure"].astype(str) + psig_data["Healthy"].astype(str)
+psig_data = psig_data.groupby(["Contact", "f", "sig_type", "SSH", "Species", "Structure", "Healthy"])["pwelch"].mean().reset_index()
+psig_data["sig_type"] = np.where(psig_data["sig_type"].str.contains("spike"), "spike", psig_data["sig_type"])
+# psig_data = psig_data.sort_values("pwelch")
+# print(psig_data["SSH"])
+# psig_data = psig_data[psig_data["SSH"].isin(["RatGPe0"])]
+print(psig_data.shape)
+print(psig_data.columns)
+pwelch_sig_fig = toolbox.FigurePlot(psig_data, figures="Species", col="SSH", row="sig_type", sharey=False, margin_titles=True)
+pwelch_sig_fig.pcolormesh(x="f", y="Contact", value="pwelch", ysort=20.0)
+
+# g = sns.FacetGrid(data=basic_data.reset_index(), col="info", col_wrap=3, sharex=False, hue="Species", aspect=2).map_dataframe(sns.barplot, x="counts", y="group").tight_layout().add_legend()
+# for ax in g.axes.flat:
+#     ax.set_ylabel(None)
+# g.figure.subplots_adjust(top=.9, bottom=0.05)
+
+# pwelch_fig = sns.relplot(kind="line", data=pwelch_df, x="f", y="pwelch", col="Structure", row="sig_type", hue="Species", style="Healthy", facet_kws=dict(margin_titles=True, sharey="row"))
+# pwelch_fig.figure.subplots_adjust(top=.9, bottom=0.05)
+# pwelch2_fig = sns.relplot(kind="line", data=pwelch2_df, x="f", y="pwelch2", col="Structure", row="sig_type", hue="Species", style="Healthy", facet_kws=dict(margin_titles=True, sharey="row"))
+# pwelch2_fig.figure.subplots_adjust(top=.9, bottom=0.05)
+# coherence_fig = sns.relplot(kind="line", data=coherence_mean_df, x="f", y="coherence_mean", col="sig_type_2", row="sig_type_1", hue="Species", style="Healthy", facet_kws=dict(margin_titles=True, sharey="row"))
+# coherence_fig.figure.subplots_adjust(top=.9, bottom=0.05)
+
+
 # sns.barplot(data=basic_data, x = [str(x) for x in basic_data.index.values],  y="counts", hue="info", gap=0)
 # plt.title(str(maxes))
 plt.show()

@@ -4,24 +4,29 @@ from typing import List, Tuple, Dict, Any, Literal
 import matplotlib.pyplot as plt
 import matplotlib as mpl, seaborn as sns
 from scipy.stats import gaussian_kde
-import math, itertools, pickle, logging, beautifullogger
+import math, itertools, pickle, logging, beautifullogger, shutil
 from autosave import Autosave
+
 
 class DimRemoveExcpt(Exception):pass
 
-def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None):
+def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None, n_ret=1, output_core_dims=None, **kwargs):
     def subapply(*args):
+        # print("entering subapply")
+        nonlocal nb_nans
         paths=list(args[:n])
         args=args[n:]
         if not pd.isna(paths).any():
             if not out_folder is None:
                 dest: pathlib.Path = pathlib.Path(out_folder)
+                progress.set_postfix(dict(nb_nans=nb_nans, status="Checking already computed"))
                 for path in paths:
                     dest=dest/path
                 dest=dest.with_suffix(".pkl")
                 if dest.exists() and not recompute:
                     return str(dest)
             data=[]
+            progress.set_postfix(dict(nb_nans=nb_nans, status="Loading input data"))
             for path in paths:
                 in_path: pathlib.Path  = pathlib.Path(in_folder)/path
                 match in_path.suffix:
@@ -31,19 +36,43 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                         data.append(toolbox.np_loader.load(in_path))
                     case ext:
                         raise Exception(f"Unknown extension {ext} for {in_path} from {path}")
+            progress.set_postfix(dict(nb_nans=nb_nans, status="Computing"))
+            # print(dest, dest.exists())
             if path_arg is None:
                 ret = func(*data, *args)
             else:
                 ret = func(*data, *args, **{path_arg:paths})
             progress.update(1)
-            if not out_folder is None and not np.isnan(ret).all():
+            try:
+                is_na = pd.isna(ret)
+            except:
+                is_na = False
+            if is_na:
+                nb_nans+=1
+                progress.set_postfix(dict(nb_nans=nb_nans))
+                # print("nan")
+                # input()
+            # print(f"Value considered {is_na}:\n{ret}")
+            if not out_folder is None and not is_na:
+                progress.set_postfix(dict(nb_nans=nb_nans, status="Dumping"))
                 dest.parent.mkdir(exist_ok=True, parents=True)
-                pickle.dump(ret, dest.open("wb"))
+                pickle.dump(ret, dest.with_suffix(".tmp").open("wb"))
+                shutil.move(str(dest.with_suffix(".tmp")),str(dest))
+                # print("Should exist !", dest, dest.exits())
                 return str(dest)
             else:
                 return ret
         else:
-            return np.nan
+            # print("returning nan undefined input")
+            
+            if not output_core_dims is None:
+                res = tuple(xr.DataArray(data=np.reshape([np.nan]*46, [1]* (len(dims)-1)+[-1]), dims=dims) for dims in output_core_dims)
+                # print(res)
+                # input()
+
+            else:
+                res= tuple([np.nan for _ in range(n_ret)]) if not n_ret is None else np.nan
+            return res
     if not save_group is None:
         group_path = pathlib.Path(save_group)
         if group_path.exists() and not recompute:
@@ -55,9 +84,14 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
             progress = tqdm.tqdm(desc=f"Computing {name}", total=float(path.count()))
         else:
             progress = tqdm.tqdm(desc=f"Computing", total=float(path.count()))
-    res = xr.apply_ufunc(subapply, path, *args, vectorize=True, output_dtypes=None if out_folder is None else [object])
+    nb_nans=0
+    # print(args)
+    # print(type(path))
+    # print(path.ndim)
+    res = xr.apply_ufunc(subapply, path, *args, vectorize=True, output_dtypes=None if out_folder is None else ([object]*n_ret), output_core_dims=output_core_dims if not output_core_dims is None else ((), ), **kwargs)
     if not save_group is None:
-        pickle.dump(res, group_path.open("wb"))
+        pickle.dump(res, group_path.with_suffix(".tmp").open("wb"))
+        shutil.move(str(group_path.with_suffix(".tmp")),str(group_path))
     return res
 
 def nunique(a, axis, to_str=False):
@@ -71,7 +105,7 @@ def nunique(a, axis, to_str=False):
             return np.ma.filled((diffs!=0).sum(axis=axis)+1, 1)
 
 
-def auto_remove_dim(dataset:xr.Dataset, ignored_vars=[]):
+def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None):
     def remove_numpy_dim(var: np.ndarray):
         nums = nunique(var, axis=-1, to_str=True)
         if (nums==1).all():
@@ -80,10 +114,18 @@ def auto_remove_dim(dataset:xr.Dataset, ignored_vars=[]):
             raise DimRemoveExcpt("Can not remove dimension")
         
     ndataset = dataset
-    for var in tqdm.tqdm(list(dataset.keys())+list(dataset.coords), desc="fit var dims"):
-        if var in ignored_vars:
-            ndataset[var] = dataset[var]
-            continue
+    if kept_var is None:
+        vars = list(dataset.keys())+list(dataset.coords)
+    else:
+        vars = kept_var
+    if not ignored_vars is None:
+        vars = list(set(vars) - set(ignored_vars))
+    for var in set(list(dataset.keys())+list(dataset.coords)) - set(vars):
+        ndataset[var] = dataset[var]
+    for var in tqdm.tqdm(vars, desc="fit var dims"):
+        # if var in ignored_vars:
+        #     ndataset[var] = dataset[var]
+        #     continue
         for dim in ndataset[var].dims:
             try:
                 ndataset[var] = xr.apply_ufunc(remove_numpy_dim, dataset[var], input_core_dims=[[dim]])
@@ -93,3 +135,8 @@ def auto_remove_dim(dataset:xr.Dataset, ignored_vars=[]):
                 e.add_note(f"Problem while auto remove dim of variable={var}")
                 raise e
     return ndataset
+
+
+def thread_vectorize(func, dim, max_workers=20, **kwargs):
+    import concurrent
+    new_args=[]
