@@ -8,7 +8,7 @@ import math, itertools, pickle, logging, beautifullogger
 from autosave import Autosave
 from xarray_helper import apply_file_func, auto_remove_dim, nunique
 
-
+xr.set_options(display_expand_coords=True, display_max_rows=100, display_expand_data_vars=True, display_width=150)
 # def test(a, b, c, d):
 #     print(a)
 #     print(b)
@@ -25,7 +25,8 @@ from xarray_helper import apply_file_func, auto_remove_dim, nunique
 logger = logging.getLogger(__name__)
 beautifullogger.setup(displayLevel=logging.INFO)
 tqdm.tqdm.pandas(desc="Computing")
-data_path = pathlib.Path("/home/julien/Documents/all_signals_resampled/")
+# data_path = pathlib.Path("/media/julien/data1/JulienCache/all_signals_resampled/")
+cache_path = "/media/julien/data1/JulienCache/"
 
 def extract_unique(a: xr.DataArray, dim: str):
     def get_uniq(a):
@@ -38,9 +39,11 @@ def extract_unique(a: xr.DataArray, dim: str):
     return xr.apply_ufunc(get_uniq, a, input_core_dims=[[dim]])
 
 
-signals = xr.open_dataset("signals.nc").load()
-metadata = xr.open_dataset("metadata.nc")
+signals = xr.open_dataset(cache_path+"signals.nc").load()
+metadata = xr.open_dataset(cache_path+"metadata.nc")
 
+print(signals)
+print(metadata)
 
 signals["time_representation_path"] = xr.apply_ufunc(lambda x: np.where(x=="", np.nan, x), signals["time_representation_path"])
 signals = signals.where(signals["Structure"].isin(["GPe", "STN", "STR"]), drop=True)
@@ -56,59 +59,178 @@ for col in transfert_coords:
 grouped_results = auto_remove_dim(grouped_results)
 grouped_results = grouped_results.set_coords(transfert_coords)
 
+
+def apply_file_func_decorator(base_folder, **kwargs):
+    def decorator(f):
+        def new_f(*arr_paths):
+            return apply_file_func(f, base_folder, *arr_paths, **kwargs)
+        return new_f
+    return decorator
+
 ###### Now let's compute stuff on our signals
-signals["bua_duration"] = apply_file_func(lambda arr: arr["index"].max() - arr["index"].min(), ".", signals["time_representation_path"].sel(sig_preprocessing="bua"), name="duration", save_group="./durations.pkl")
-signals["spike_duration"] = apply_file_func(lambda arr: float(np.max(arr) - np.min(arr)), ".", signals["time_representation_path"].where(signals["sig_type"] == "spike_times"), name="spike_duration", save_group="./spike_durations.pkl")
-signals["n_spikes"] = apply_file_func(lambda arr: arr.size, ".", signals["time_representation_path"].where(signals["sig_type"] == "spike_times"), name="n_spike", save_group="./n_spikes.pkl")
+@apply_file_func_decorator(".", name="spike_duration", save_group=cache_path+"spike_durations.pkl")
+def compute_spike_duration(arr: xr.DataArray):
+    return float(np.max(arr) - np.min(arr))
+
+@apply_file_func_decorator(".", name="sig_duration", save_group=cache_path+"sig_durations.pkl")
+def compute_sig_duration(arr: xr.DataArray):
+    return arr["t"].max() - arr["t"].min()
+
+
+signals["duration"] = xr.where(signals["sig_type"]=="spike_times", 
+    compute_spike_duration(signals["time_representation_path"].where(signals["sig_type"] == "spike_times")),
+    compute_sig_duration(signals["time_representation_path"].where(signals["sig_type"] != "spike_times"))
+)
+
+@apply_file_func_decorator(".", name="resampled_normalize", out_folder=cache_path+"resampled_normalized")
+def resample_normalize_data(arr, sig_type, new_fs):
+    from xarray_helper import sampled_arr_from_events, resample_arr, normalize
+    if sig_type=="spike_times":
+        a, start = sampled_arr_from_events(arr, new_fs)
+        a=xr.DataArray(a, dims="t", coords=[start + (np.arange(a.size))/new_fs])
+    else:
+        a,counts = resample_arr(arr, "t", new_fs, return_counts=True, new_dim_name="t")
+        a=a.where(counts==counts.max("t"), drop=True)
+    a = normalize(a)
+    a = a.assign_coords(fs=new_fs)
+    return a
+
+signals = signals.head(10)
+signals["resampled_continuous_path"] = resample_normalize_data(signals["time_representation_path"], signals["sig_type"], 250)
+
+print(signals)
+
+
+@apply_file_func_decorator(cache_path, name="cwt", out_folder=cache_path+"cwt", path_arg="debug_path", recompute=False)
+def compute_cwt(arr, final_fs, debug_path):
+    import pycwt
+    from xarray_helper import resample_arr
+    
+
+    data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(arr.to_numpy(), 1/arr["fs"].item(), s0=0.02, J=45)
+    cwt = xr.DataArray(data=data, dims=["f", "t"], coords=dict(
+        t=arr["t"],
+        scales=("f", scales), f=("f", freqs),
+        coi=("t", coi)
+    ))
+
+    final = resample_arr(cwt, "t", final_fs, new_dim_name="t")
+    final["coi"] = resample_arr(cwt["coi"], "t", final_fs, new_dim_name="t")
+    print(final)
+    input()
+    return final
+
+signals["cwt_path"] = compute_cwt(signals["resampled_continuous_path"], 50)
+
+@apply_file_func_decorator(cache_path, name="power_cwt", out_folder=cache_path+"power_cwt", recompute=False)
+def compute_power_cwt(a: xr.DataArray):
+    return np.abs(a * np.conj(a))
+
+signals["cwt_power"] = compute_power_cwt(signals["cwt_path"])
+
+
+@apply_file_func_decorator(cache_path, name="spectrogram", out_folder=cache_path+"spectrogram", path_arg="debug_path", recompute=False)
+def compute_spectrogram(arr, final_fs, debug_path):
+    import scipy.signal
+    from xarray_helper import resample_arr
+    
+    window_size = int(arr["fs"].item()/final_fs)
+    f,t,spectrogram = scipy.signal.spectrogram(arr.to_numpy(), arr["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+    spectrogram = xr.DataArray(data=spectrogram, dims=["f", "t"], coords=dict(
+        t=t+arr["t"].min().item(),
+        f=f,
+    ))
+    final = resample_arr(spectrogram, "t", final_fs, new_dim_name="t")
+
+    return spectrogram
+
+signals["spectrogram"] = compute_spectrogram(signals["resampled_continuous_path"], 50)
+
+print(signals)
+exit()
+# signals=signals.head(100)
+signals["cwt_path"] = compute_cwt(signals["resampled_continuous_path"], 50)
+
+def compute_spectrogram(arr, sig_type, final_fs, debug_path):
+    pass
+
+def compute_cwt_power(arr: xr.Dataset):
+    pass
+signals["cwt_power"] = lambda a: np.abs(a * np.conj(a))
+print(signals)
+exit()
+
+
+def compute_cwt(a, sig_type, pre_cwt_fs, final_fs, plot=False, paths=[]):
+    import pycwt
+    from toolbox import sampled_arr_from_events, resample_arr
+    if plot:
+        f,[ax_in, ax_out] = plt.subplots(2,sharex=True)
+        f.suptitle(f"Computation of wavelets for {paths}", size="small")
+        ax_in_leg=[]
+    if sig_type=="spike_times":
+        if plot:
+            ax_ev = ax_in.twinx()
+            ax_in_leg=ax_in_leg+ax_ev.eventplot(a, color="pink",label="spike times")
+        a, start = sampled_arr_from_events(a, pre_cwt_fs)
+        a=xr.DataArray(a, dims="t", coords=[start + (np.arange(a.size))/pre_cwt_fs])
+    else:
+        a,counts = resample_arr(a, "t", pre_cwt_fs, return_counts=True, new_dim_name="t")
+        a=a.where(counts==counts.max("t"), drop=True)
+    if plot:
+        ax_in.set_title(f"Input data before normalization downsampled to {pre_cwt_fs}")
+        ax_in_leg=ax_in_leg+a.plot(ax=ax_in, label="Resampled data given to cwt before z-score")
+        # print(type(ax_in_leg[0]))
+        ax_in.legend(ax_in_leg, [l.get_label() for l in ax_in_leg])
+    data, scales, freqs, coi, fft, fftfreqs = pycwt.cwt(normalize(a).to_numpy(), 1/pre_cwt_fs, s0=0.02, J=45)
+    res = xr.DataArray(data=data, dims=["f", "t"], coords=dict(
+        t=a["t"],
+        scales=("f", scales), f=("f", freqs),
+        coi=("t", coi)
+    ))
+    # print(res)
+    unresampled=res
+    res = resample_arr(res, "t", final_fs, new_dim_name="t")
+    res["coi"] = resample_arr(unresampled["coi"], "t", final_fs, new_dim_name="t")
+    # print(res)
+    
+    if plot:
+        ax_out.set_title(f"Outputtime/freq representation downsampled to {final_fs}")
+        np.abs(res).plot(ax=ax_out, add_colorbar=False)
+        (1/res["coi"]).plot(ax=ax_out, color="red", label="cone of influence")
+        # axs[1].plot(res["t"], 1/res["coi"], color="red")
+        ax_out.legend()
+        f.tight_layout()
+        figManager = plt.get_current_fig_manager()
+        figManager.window.showMaximized()
+        plt.show()
+    return res
+
+
+
+
+
+
+
+
+
+
+
+print(np.abs(signals["duration"].sel(sig_preprocessing="bua")-signals["duration"].sel(sig_preprocessing="lfp")).max().item())
+print((signals["duration"].sel(sig_preprocessing="bua")-signals["duration"].sel(sig_preprocessing="neuron_0")).max().item())
+print((signals["duration"].sel(sig_preprocessing="bua")-signals["duration"].sel(sig_preprocessing="neuron_0")).min().item())
+
+exit()
+signals["bua_duration"] = apply_file_func(lambda arr: arr["index"].max() - arr["index"].min(), ".", signals["time_representation_path"].sel(sig_preprocessing="bua"), name="duration", save_group=cache_path+"durations.pkl")
+signals["spike_duration"] = apply_file_func(lambda arr: float(np.max(arr) - np.min(arr)), ".", signals["time_representation_path"].where(signals["sig_type"] == "spike_times"), name="spike_duration", save_group=cache_path+"spike_durations.pkl")
+signals["n_spikes"] = apply_file_func(lambda arr: arr.size, ".", signals["time_representation_path"].where(signals["sig_type"] == "spike_times"), name="n_spike", save_group=cache_path+"n_spikes.pkl")
 signals["n_spikes/s"] = signals["n_spikes"]/signals["spike_duration"]
-signals["n_data_points"] = apply_file_func(lambda arr: float(arr.size), ".", signals["time_representation_path"], name="n_datapoints", save_group="./n_datapoints.pkl")
+signals["n_data_points"] = apply_file_func(lambda arr: float(arr.size), ".", signals["time_representation_path"], name="n_datapoints", save_group=cache_path+"n_datapoints.pkl")
 signals["_diff"] = (signals["bua_duration"] - signals["spike_duration"])
 
-def resample_arr(a: xr.DataArray, dim: str, new_fs: float, position="centered", new_dim_name=None,*, mean_kwargs={}, return_counts=False):
-    if new_dim_name is None:
-        new_dim_name = f"{dim}_bins"
-    match position:
-        case "centered":
-            a["new_fs_index"] = np.round(a[dim]*new_fs+1/(1000*new_fs))
-        case "start":
-            a["new_fs_index"] = (a[dim]*new_fs).astype(int)
-    grp = a.groupby("new_fs_index")
-    binned = grp.mean(dim, **mean_kwargs)
-    binned = binned.rename(new_fs_index=new_dim_name)
-    binned[new_dim_name] = binned[new_dim_name]/new_fs
-    
-    if return_counts:
-        counts = grp.count(dim)
-        counts= counts.rename(new_fs_index=new_dim_name)
-        counts[new_dim_name] = counts[new_dim_name]/new_fs
-        return binned, counts
-    else:
-        return binned
-    
-def sampled_arr_from_events(a: np.array, fs: float, weights=1):
-    if len(a.shape) > 1:
-        raise Exception(f"Wrong input shape. Got {a.shape}")
-    m=np.round(np.min(a)*fs)
-    M=np.round(np.max(a)*fs)
-    n = int(M-m + 1)
-    res = np.zeros(n)
-    np.add.at(res, np.round(a*fs).astype(int) - int(m), weights)
-    return res, m/fs
+exit()
 
-def sum_shifted(a: np.array, kernel: np.array):
-    if len(a.shape) > 1:
-        raise Exception(f"Wrong input shape. Got {a.shape}")
-    if len(kernel.shape) > 1:
-        raise Exception(f"Wrong input shape. Got {kernel.shape}")
-    if kernel.size % 2 !=1:
-        raise Exception(f"Kernel must have odd size {kernel.size}")
-    roll = int(np.floor(kernel.size/2))
-    a = np.concatenate([np.zeros(roll), a, np.zeros(roll)])
-    # kernel = np.concatenate([kernel, np.zeros(a.size - kernel.size)])
-    res = np.zeros(a.size)
-    for i in range(-roll, roll+1):
-        res = res + np.roll(a,i)*kernel[i+roll]
-    return res
+
 
 
     
@@ -274,7 +396,7 @@ def rotate_test(a: xr.DataArray, arr:str=None):
     if not arr is None:
         a = a[arr]
     # print(a)
-    r = a.mean("t")
+    r = a.where((a != np.inf) & (a != -np.inf)).mean("t")
     res = r.to_numpy(), r["f"].to_numpy()
     # print(res)
     # input()
@@ -288,6 +410,14 @@ pwelch["freqs"] = freqs
 signals["pwelch"] = auto_remove_dim(pwelch.to_dataset(), kept_var=["freqs"])["time_freq_repr"]
 signals["f"] = signals["freqs"]
 signals = signals.drop_vars("freqs")
+def rm_tuple_nan(x):
+
+    res = np.nan if isinstance(x, tuple) and len(x) ==1 and pd.isna(x[0]) else x
+    # print(x, res, len(x))
+    return res
+signals = xr.apply_ufunc(rm_tuple_nan, signals, vectorize=True)
+# print(test)
+# exit()
 # print(signals)
 # exit()
 
@@ -298,10 +428,23 @@ if not pathlib.Path("pair_signals.pkl").exists():
     defined_signals = defined_signals.loc[~pd.isna(defined_signals["cwt_path"])]
     defined_signals = defined_signals.drop(columns="has_entry")
     defined_signals = defined_signals.drop(columns=["group_index"])
+    defined_signals = defined_signals.sort_values("sig_preprocessing")
     pair_signals = toolbox.group_and_combine(defined_signals, ["Session", "FullStructure"], include_eq=False)
-    pair_signals = pair_signals.loc[pair_signals["Contact_1"] != pair_signals["Contact_2"]]
+    pair_signals = (pair_signals.loc[pair_signals["Contact_1"] != pair_signals["Contact_2"]]).copy()
+
+    # pair_signals["Contact_1_old"] = pair_signals["Contact_1"]
+    # pair_signals["Contact_2_old"] = pair_signals["Contact_2"]
+    # pair_signals["Contact_1"] = np.where(pair_signals["sig_preprocessing_1"] < pair_signals["sig_preprocessing_2"], pair_signals["Contact_1_old"], pair_signals["Contact_2_old"])
+    # pair_signals["Contact_2"] = np.where(pair_signals["sig_preprocessing_1"] < pair_signals["sig_preprocessing_2"], pair_signals["Contact_2_old"], pair_signals["Contact_1_old"])
+    
+    # print(pair_signals.columns)
+    # exit()
+    
+    # pair_signals = pair_signals.drop(columns=["Contact_1_old", "Contact_2_old"])
     pair_signals["Contact_pair"] = pd.MultiIndex.from_arrays([pair_signals["Contact_1"], pair_signals["Contact_2"]], names=["Contact_1", "Contact_2"])
     pair_signals = pair_signals.set_index(["Contact_pair", "sig_preprocessing_1", "sig_preprocessing_2"])
+    pair_signals.to_csv("pair_signals.tsv", sep="\t")
+    
     pair_signals = xr.Dataset.from_dataframe(pair_signals)
     for coord in signals.coords:
         if coord in pair_signals:
@@ -315,6 +458,7 @@ if not pathlib.Path("pair_signals.pkl").exists():
         elif coord+"_1" in pair_signals:
             raise Exception("Strange")
     
+    print(pair_signals)
     pair_signals = auto_remove_dim(pair_signals, ignored_vars=["Contact_pair"])
     pickle.dump(pair_signals, open("pair_signals.pkl", "wb"))
 else:
@@ -325,7 +469,7 @@ pair_signals["has_entry_2"] = xr.apply_ufunc(lambda x: ~pd.isna(x), pair_signals
 pair_signals["group_index"] = xr.DataArray(pd.MultiIndex.from_arrays([pair_signals[a].data for a in group_index_cols],names=group_index_cols), dims=['Contact_pair'], coords=[pair_signals["Contact_pair"]])
  
 pair_signals = pair_signals.set_coords([v for v in pair_signals.variables if not "cwt_path" in v and not "time_representation_path" in v])
-pair_signals=pair_signals.where(((pair_signals["sig_type_1"] == "bua") & (pair_signals["sig_type_2"] == "spike_times")) | ((pair_signals["sig_type_2"] == "bua") & (pair_signals["sig_type_1"] == "spike_times")))
+pair_signals =pair_signals.where(((pair_signals["sig_type_1"] == "bua") & (pair_signals["sig_type_2"] == "spike_times")) | ((pair_signals["sig_type_2"] == "bua") & (pair_signals["sig_type_1"] == "spike_times")))
 # print(pair_signals)
 
 
@@ -371,9 +515,10 @@ pair_signals["coherence_mean"] = auto_remove_dim(coherence_mean.to_dataset(), ke
 
 pair_signals["f"] = pair_signals["freqs"]
 pair_signals = pair_signals.drop_vars("freqs")
-# print(pair_signals)
 
-# exit()
+
+print(pair_signals)
+print(pair_signals["coherence_mean"].count())
 # print(pair_signals.groupby(["Session"]).apply(lambda d: d.groupby(["Contact_1"]).ngroup()).max())
 # print(pair_signals.groupby(["Session"]).apply(lambda d: d.groupby(["Contact_2"]).ngroup()).max())
 # print(pair_signals.groupby(["Session"]).ngroup().max())
@@ -397,6 +542,8 @@ grouped_results["pwelch"] = signals["pwelch"].groupby("group_index").mean().unst
 grouped_results["coherence_mean"] = pair_signals["coherence_mean"].groupby("group_index").mean().unstack().groupby("sig_type_1").mean().groupby("sig_type_2").mean()
 grouped_results["pwelch2"] = signals.groupby("group_index").map(lambda a: a["pwelch"].weighted(a["bua_duration"]).mean("Contact")).unstack().groupby("sig_type").mean()
 grouped_results["CoherencePairCounts"] = (pair_signals["intersection_length"] > 5).groupby("group_index").map(lambda a: a.sum()).unstack()
+print(grouped_results)
+
 # print(grouped_results["CoherencePairCounts"])
 # exit()
 # print(grouped_results["pwelch"])
@@ -543,19 +690,40 @@ basic_data["group"] = [str(x[1:]) for x in basic_data.index.values]
 
 import seaborn as sns
 
-
+if False:
 # xr.plot.pcolormesh(signals["pwelch"].sel(sig_preprocessing="bua"),y="Contact", x="f")
-psig_data = signals["pwelch"].to_dataframe().reset_index()
-psig_data["SSH"] = psig_data["Species"].astype(str) + psig_data["Structure"].astype(str) + psig_data["Healthy"].astype(str)
-psig_data = psig_data.groupby(["Contact", "f", "sig_type", "SSH", "Species", "Structure", "Healthy"])["pwelch"].mean().reset_index()
-psig_data["sig_type"] = np.where(psig_data["sig_type"].str.contains("spike"), "spike", psig_data["sig_type"])
-# psig_data = psig_data.sort_values("pwelch")
-# print(psig_data["SSH"])
-# psig_data = psig_data[psig_data["SSH"].isin(["RatGPe0"])]
-print(psig_data.shape)
-print(psig_data.columns)
-pwelch_sig_fig = toolbox.FigurePlot(psig_data, figures="Species", col="SSH", row="sig_type", sharey=False, margin_titles=True)
-pwelch_sig_fig.pcolormesh(x="f", y="Contact", value="pwelch", ysort=20.0)
+    psig_data = signals["pwelch"].to_dataframe().reset_index()
+    psig_data = psig_data[(psig_data["f"] > 6) & (psig_data["f"] < 45)].copy()
+    psig_data["SSH"] = psig_data["Species"].astype(str) + psig_data["Structure"].astype(str) + psig_data["Healthy"].astype(str)
+    psig_data = psig_data.groupby(["Contact", "f", "sig_type", "SSH", "Species", "Structure", "Healthy"])["pwelch"].mean().reset_index()
+    psig_data["sig_type"] = np.where(psig_data["sig_type"].str.contains("spike"), "spike", psig_data["sig_type"])
+    # psig_data = psig_data.sort_values("pwelch")
+    # print(psig_data["SSH"])
+    # psig_data = psig_data[psig_data["SSH"].isin(["RatGPe0"])]
+    print(psig_data.shape)
+    print(psig_data.columns)
+    pwelch_sig_fig = toolbox.FigurePlot(psig_data, figures="Species", col="SSH", row="sig_type", sharey=False, margin_titles=True)
+    pwelch_sig_fig.pcolormesh(x="f", y="Contact", value="pwelch", ysort=20.0, ylabels=False)
+
+
+
+coherence_data = pair_signals["coherence_mean"].to_dataframe().reset_index()
+coherence_data = coherence_data[(coherence_data["f"] > 6) & (coherence_data["f"] < 45) & (coherence_data["coherence_mean"] < 10**9)].copy()
+# print(coherence_data)
+# print(coherence_data[~coherence_data["coherence_mean"].isna()])
+# print(coherence_data[coherence_data["coherence_mean"] > 10**9])
+coherence_data["SSH"] = coherence_data["Species"].astype(str) + coherence_data["Structure"].astype(str) + coherence_data["Healthy"].astype(str)
+coherence_data = coherence_data.groupby(["Contact_pair", "f", "sig_type_1", "sig_type_2", "SSH", "Species", "Structure", "Healthy"])["coherence_mean"].mean().reset_index()
+print(coherence_data[~coherence_data["coherence_mean"].isna()])
+
+# print("SHOWING")
+# print(coherence_data[["sig_type_1", "sig_type_2"]].drop_duplicates())
+# coherence_data = coherence_data.loc[(coherence_data["sig_type_1"] == coherence_data["sig_type_2"])].copy()
+coherence_data["sig_type"] = coherence_data["sig_type_1"] + coherence_data["sig_type_2"]
+print(coherence_data)
+coherence_sig_fig = toolbox.FigurePlot(coherence_data, figures="Species", col="SSH", row="sig_type", sharey=False, margin_titles=True)
+coherence_sig_fig.pcolormesh(x="f", y="Contact_pair", value="coherence_mean", ysort=20.0, ylabels=False)
+
 
 # g = sns.FacetGrid(data=basic_data.reset_index(), col="info", col_wrap=3, sharex=False, hue="Species", aspect=2).map_dataframe(sns.barplot, x="counts", y="group").tight_layout().add_legend()
 # for ax in g.axes.flat:

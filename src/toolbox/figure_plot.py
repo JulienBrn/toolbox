@@ -91,7 +91,7 @@ class FigurePlot:
         return self
     
     def pcolormesh(self, *args, **kwargs):
-        def colormesh(data: pd.DataFrame, x: str, y:str, value: str, ysort=None, **kwargs):
+        def colormesh(data: pd.DataFrame, x: str, y:str, value: str, ysort=None, xlabels=True, ylabels=True, **kwargs):
            data = data.set_index([x, y], append=False)
            if data.index.duplicated(keep=False).any():
                raise Exception(f"Duplication Examples:{data.index[data.index.duplicated(keep=False)]}")
@@ -109,12 +109,24 @@ class FigurePlot:
            kwargs.pop("color")
         #    print(kwargs)
         #    input()
-           x_coords = np.array(data.columns.to_list() + [4000])
-           y_coords = np.array(data.index.to_list() + [51])
-           x_coords_f = np.stack([x_coords]*len(y_coords))
-           y_coords_f = np.stack([y_coords]*len(x_coords), axis=-1)
-           print(data.shape, x_coords_f.shape, y_coords_f.shape)
-           plt.pcolormesh(x_coords_f, y_coords_f, data.to_numpy(), **kwargs)
+        #    if no_labels:
+           plt.pcolormesh(data.to_numpy(), **kwargs)
+           ax = plt.gca()
+           if xlabels:
+            xticks = np.linspace(0, len(data.columns)-1, 5, endpoint=True).round().astype(int)
+            xtickslabels = [str(x)[0:5] for x in data.columns[xticks]]
+            ax.set_xticks(xticks.astype(float)+0.5, xtickslabels)
+           if ylabels:
+            yticks = np.linspace(0, len(data.index)-1, 5, endpoint=True).round().astype(int)
+            ytickslabels = [str(y)[0:5] for y in data.index[yticks]]
+            ax.set_yticks(yticks.astype(float)+0.5, ytickslabels)
+        #    else:
+        #         x_coords = np.array(data.columns.to_list() + [4000])
+        #         y_coords = np.array(data.index.to_list() + [51])
+        #         x_coords_f = np.stack([x_coords]*len(y_coords))
+        #         y_coords_f = np.stack([y_coords]*len(x_coords), axis=-1)
+        #         #    print(data.shape, x_coords_f.shape, y_coords_f.shape)
+        #         plt.pcolormesh(x_coords_f, y_coords_f, data.to_numpy(), **kwargs)
 
         for facetgrid in self.figures.values():
             facetgrid.map_dataframe(colormesh, **kwargs)

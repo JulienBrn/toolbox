@@ -14,15 +14,16 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
     def subapply(*args):
         # print("entering subapply")
         nonlocal nb_nans
-        paths=list(args[:n])
+        paths: List[pathlib.Path]=list(args[:n])
         args=args[n:]
-        if not pd.isna(paths).any():
+        if (not pd.isna(paths).any()) and not ("nan" in paths):
             if not out_folder is None:
                 dest: pathlib.Path = pathlib.Path(out_folder)
                 progress.set_postfix(dict(nb_nans=nb_nans, status="Checking already computed"))
                 for path in paths:
-                    dest=dest/path
+                    dest=dest/pathlib.Path(path).relative_to(pathlib.Path(in_folder))
                 dest=dest.with_suffix(".pkl")
+                # print(out_folder, dest, paths)
                 if dest.exists() and not recompute:
                     return str(dest)
             data=[]
@@ -35,7 +36,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                     case ".npy":
                         data.append(toolbox.np_loader.load(in_path))
                     case ext:
-                        raise Exception(f"Unknown extension {ext} for {in_path} from {path}")
+                        raise Exception(f"Unknown extension {ext} for {in_path} from {path} {pd.isna(path)} {type(path)}")
             progress.set_postfix(dict(nb_nans=nb_nans, status="Computing"))
             # print(dest, dest.exists())
             if path_arg is None:
@@ -44,12 +45,20 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                 ret = func(*data, *args, **{path_arg:paths})
             progress.update(1)
             try:
-                is_na = pd.isna(ret)
+                if isinstance(ret, xr.DataArray):
+                    is_na = False
+                else:
+                    is_na = pd.isna(ret)
             except:
                 is_na = False
-            if is_na:
-                nb_nans+=1
-                progress.set_postfix(dict(nb_nans=nb_nans))
+            try:
+                if is_na:
+                    nb_nans+=1
+                    progress.set_postfix(dict(nb_nans=nb_nans))
+            except:
+                print(is_na)
+                print(ret)
+                raise
                 # print("nan")
                 # input()
             # print(f"Value considered {is_na}:\n{ret}")
@@ -57,6 +66,8 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                 progress.set_postfix(dict(nb_nans=nb_nans, status="Dumping"))
                 dest.parent.mkdir(exist_ok=True, parents=True)
                 pickle.dump(ret, dest.with_suffix(".tmp").open("wb"))
+                # print(out_folder, str(dest.with_suffix(".tmp")))
+                # input()
                 shutil.move(str(dest.with_suffix(".tmp")),str(dest))
                 # print("Should exist !", dest, dest.exits())
                 return str(dest)
@@ -71,7 +82,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                 # input()
 
             else:
-                res= tuple([np.nan for _ in range(n_ret)]) if not n_ret is None else np.nan
+                res= tuple([np.nan for _ in range(n_ret)]) if not n_ret is 1 else np.nan
             return res
     if not save_group is None:
         group_path = pathlib.Path(save_group)
@@ -97,7 +108,19 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
 def nunique(a, axis, to_str=False):
             a = np.ma.masked_array(a, mask=pd.isna(a))
             if to_str:
-                a = a.astype(str)
+                try:
+                    a = a.astype(str)
+                except Exception as e:
+                    ta = a.reshape(-1)
+                    for i in range(0, ta.size, 10):
+                        try:
+                            _ = ta[i:i+10].astype(str)
+                        except:
+                            e.add_note(f"Problem converting array values to string... Initial dtype is {a.dtype}. Example of values is\n{ta[i:i+10]} {ta[i+3]} {type(ta[i+3])}")
+                            # print("Array is ", a)
+                            raise e
+                    e.add_note(f"Problem converting array values to string... Initial dtype is {a.dtype}. Example of values not found")
+                    raise e
             sorted = np.ma.sort(a,axis=axis, endwith=True, fill_value=''.join([chr(255) for _ in range(5)]))
             unshifted = np.apply_along_axis(lambda x: x[:-1], axis, sorted)
             shifted = np.apply_along_axis(lambda x: x[1:], axis, sorted)
@@ -140,3 +163,55 @@ def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None):
 def thread_vectorize(func, dim, max_workers=20, **kwargs):
     import concurrent
     new_args=[]
+
+
+def resample_arr(a: xr.DataArray, dim: str, new_fs: float, position="centered", new_dim_name=None,*, mean_kwargs={}, return_counts=False):
+    if new_dim_name is None:
+        new_dim_name = f"{dim}_bins"
+    match position:
+        case "centered":
+            a["new_fs_index"] = np.round(a[dim]*new_fs+1/(1000*new_fs))
+        case "start":
+            a["new_fs_index"] = (a[dim]*new_fs).astype(int)
+    grp = a.groupby("new_fs_index")
+    binned = grp.mean(dim, **mean_kwargs)
+    binned = binned.rename(new_fs_index=new_dim_name)
+    binned[new_dim_name] = binned[new_dim_name]/new_fs
+    
+    if return_counts:
+        counts = grp.count(dim)
+        counts= counts.rename(new_fs_index=new_dim_name)
+        counts[new_dim_name] = counts[new_dim_name]/new_fs
+        return binned, counts
+    else:
+        return binned
+    
+def sampled_arr_from_events(a: np.array, fs: float, weights=1):
+    if len(a.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {a.shape}")
+    m=np.round(np.min(a)*fs)
+    M=np.round(np.max(a)*fs)
+    n = int(M-m + 1)
+    res = np.zeros(n)
+    np.add.at(res, np.round(a*fs).astype(int) - int(m), weights)
+    return res, m/fs
+
+def sum_shifted(a: np.array, kernel: np.array):
+    if len(a.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {a.shape}")
+    if len(kernel.shape) > 1:
+        raise Exception(f"Wrong input shape. Got {kernel.shape}")
+    if kernel.size % 2 !=1:
+        raise Exception(f"Kernel must have odd size {kernel.size}")
+    roll = int(np.floor(kernel.size/2))
+    a = np.concatenate([np.zeros(roll), a, np.zeros(roll)])
+    # kernel = np.concatenate([kernel, np.zeros(a.size - kernel.size)])
+    res = np.zeros(a.size)
+    for i in range(-roll, roll+1):
+        res = res + np.roll(a,i)*kernel[i+roll]
+    return res
+
+def normalize(a: xr.DataArray):
+    std = a.std()
+    a_normal = (a - a.mean()) / std
+    return a_normal
