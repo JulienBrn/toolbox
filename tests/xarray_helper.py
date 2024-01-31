@@ -10,24 +10,28 @@ from autosave import Autosave
 
 class DimRemoveExcpt(Exception):pass
 
-def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None, n_ret=1, output_core_dims=None, **kwargs):
+def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None, n_ret=1, output_core_dims=None, n_outcore_nans=None,**kwargs):
     def subapply(*args):
         # print("entering subapply")
-        nonlocal nb_nans
+        nonlocal nb_nans, nb_already_computed
         paths: List[pathlib.Path]=list(args[:n])
         args=args[n:]
         if (not pd.isna(paths).any()) and not ("nan" in paths):
             if not out_folder is None:
                 dest: pathlib.Path = pathlib.Path(out_folder)
-                progress.set_postfix(dict(nb_nans=nb_nans, status="Checking already computed"))
+                progress.set_postfix(dict(saved=nb_already_computed, nb_nans=nb_nans, status="Checking already computed"))
                 for path in paths:
                     dest=dest/pathlib.Path(path).relative_to(pathlib.Path(in_folder))
                 dest=dest.with_suffix(".pkl")
                 # print(out_folder, dest, paths)
                 if dest.exists() and not recompute:
+                    nb_already_computed+=1
+                    progress.set_postfix(dict(saved=nb_already_computed, nb_nans=nb_nans))
+                    progress.total=progress.total-1
+                    progress.update(0)
                     return str(dest)
             data=[]
-            progress.set_postfix(dict(nb_nans=nb_nans, status="Loading input data"))
+            progress.set_postfix(dict(saved=nb_already_computed, nb_nans=nb_nans, status="Loading input data"))
             for path in paths:
                 in_path: pathlib.Path  = pathlib.Path(in_folder)/path
                 match in_path.suffix:
@@ -37,7 +41,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                         data.append(toolbox.np_loader.load(in_path))
                     case ext:
                         raise Exception(f"Unknown extension {ext} for {in_path} from {path} {pd.isna(path)} {type(path)}")
-            progress.set_postfix(dict(nb_nans=nb_nans, status="Computing"))
+            progress.set_postfix(dict(saved=nb_already_computed, nb_nans=nb_nans, status="Computing"))
             # print(dest, dest.exists())
             if path_arg is None:
                 ret = func(*data, *args)
@@ -54,7 +58,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
             try:
                 if is_na:
                     nb_nans+=1
-                    progress.set_postfix(dict(nb_nans=nb_nans))
+                    progress.set_postfix(dict(saved=nb_already_computed, nb_nans=nb_nans))
             except:
                 print(is_na)
                 print(ret)
@@ -77,7 +81,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
             # print("returning nan undefined input")
             
             if not output_core_dims is None:
-                res = tuple(xr.DataArray(data=np.reshape([np.nan]*46, [1]* (len(dims)-1)+[-1]), dims=dims) for dims in output_core_dims)
+                res = tuple(xr.DataArray(data=np.reshape([np.nan]*n_outcore_nans, [1]* (len(dims)-1)+[-1]), dims=dims) for dims in output_core_dims)
                 # print(res)
                 # input()
 
@@ -96,13 +100,17 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
         else:
             progress = tqdm.tqdm(desc=f"Computing", total=float(path.count()))
     nb_nans=0
+    nb_already_computed=0
     # print(args)
     # print(type(path))
     # print(path.ndim)
+    progress.set_postfix(dict(status="Applying xarray ufunc"))
     res = xr.apply_ufunc(subapply, path, *args, vectorize=True, output_dtypes=None if out_folder is None else ([object]*n_ret), output_core_dims=output_core_dims if not output_core_dims is None else ((), ), **kwargs)
     if not save_group is None:
+        group_path.parent.mkdir(exist_ok=True, parents=True)
         pickle.dump(res, group_path.with_suffix(".tmp").open("wb"))
         shutil.move(str(group_path.with_suffix(".tmp")),str(group_path))
+    progress.update(0)
     return res
 
 def nunique(a, axis, to_str=False):
@@ -128,7 +136,7 @@ def nunique(a, axis, to_str=False):
             return np.ma.filled((diffs!=0).sum(axis=axis)+1, 1)
 
 
-def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None):
+def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None, dim_list=None):
     def remove_numpy_dim(var: np.ndarray):
         nums = nunique(var, axis=-1, to_str=True)
         if (nums==1).all():
@@ -145,18 +153,19 @@ def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None):
         vars = list(set(vars) - set(ignored_vars))
     for var in set(list(dataset.keys())+list(dataset.coords)) - set(vars):
         ndataset[var] = dataset[var]
-    for var in tqdm.tqdm(vars, desc="fit var dims"):
+    for var in tqdm.tqdm(vars, desc="fit var dims", disable=True):
         # if var in ignored_vars:
         #     ndataset[var] = dataset[var]
         #     continue
         for dim in ndataset[var].dims:
-            try:
-                ndataset[var] = xr.apply_ufunc(remove_numpy_dim, dataset[var], input_core_dims=[[dim]])
-            except DimRemoveExcpt:
-                pass
-            except Exception as e:
-                e.add_note(f"Problem while auto remove dim of variable={var}")
-                raise e
+            if dim_list is None or dim in dim_list:
+                try:
+                    ndataset[var] = xr.apply_ufunc(remove_numpy_dim, dataset[var], input_core_dims=[[dim]])
+                except DimRemoveExcpt:
+                    pass
+                except Exception as e:
+                    e.add_note(f"Problem while auto remove dim of variable={var}")
+                    raise e
     return ndataset
 
 
@@ -215,3 +224,20 @@ def normalize(a: xr.DataArray):
     std = a.std()
     a_normal = (a - a.mean()) / std
     return a_normal
+
+def apply_file_func_decorator(base_folder, **kwargs):
+    def decorator(f):
+        def new_f(*arr_paths):
+            return apply_file_func(f, base_folder, *arr_paths, **kwargs)
+        return new_f
+    return decorator
+
+def extract_unique(a: xr.DataArray, dim: str):
+    def get_uniq(a):
+        nums = nunique(a, axis=-1, to_str=True)
+        if (nums==1).all():
+            r = np.take_along_axis(a, np.argmax(~pd.isna(a), axis=-1, keepdims=True), axis=-1).squeeze(axis=-1)
+            return r
+        else:
+            raise Exception(f"Can not extract unique value. Array:\n {a}\nExample\n{a[np.argmax(nums)]}")
+    return xr.apply_ufunc(get_uniq, a, input_core_dims=[[dim]])
