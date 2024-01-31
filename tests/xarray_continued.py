@@ -38,37 +38,28 @@ match MODE:
             pickle.dump(test_signal, open(f"./sig_{i}.pkl", "wb"))
         recompute=True
     case "ALL" | "BALANCED":
-        cache_path = f"/media/julien/data1/JulienCache/{'All' if MODE=='ALL' else 'Balanced'}/"
+        cache_path = f"/media/julien/data1/JulienCache/All/"
         signals = xr.open_dataset(cache_path+"../signals.nc").load()
-        metadata = xr.open_dataset(cache_path+"../metadata.nc")
         recompute=False
     case "SMALL":
         cache_path = "/media/julien/data1/JulienCache/Small/"
         signals = xr.open_dataset(cache_path+"../signals.nc").load().head(dict(Contact="50"))
-        metadata = xr.open_dataset(cache_path+"../metadata.nc")
         recompute=False
+    case "BALANCED":
+        cache_path = f"/media/julien/data1/JulienCache/Balanced/"
+        signals = xr.open_dataset(cache_path+"../signals.nc").load()
+        group_index_cols = ["Species", "Structure", "Healthy"]
+        signals["group_index"] = xr.DataArray(pd.MultiIndex.from_arrays([signals[a].data for a in group_index_cols],names=group_index_cols), dims=['Contact'], coords=[signals["Contact"]])
+        signals = signals.set_coords("group_index")
+        signals = signals.groupby("group_index").map(lambda x: x.head(20))
+        signals = signals.drop("group_index")
 recompute = recompute or force_recompute
 
 
 signals["time_representation_path"] = xr.apply_ufunc(lambda x: np.where(x=="", np.nan, x), signals["time_representation_path"])
 signals = signals.where(signals["Structure"].isin(["GPe", "STN", "STR"]), drop=True)
-group_index_cols = ["Species", "Structure", "Healthy"]
-signals["group_index"] = xr.DataArray(pd.MultiIndex.from_arrays([signals[a].data for a in group_index_cols],names=group_index_cols), dims=['Contact'], coords=[signals["Contact"]])
-signals = signals.set_coords("group_index")
-if MODE=="BALANCED":
-    signals = signals.groupby("group_index").map(lambda x: x.head(20))
+
 print(signals)
-
-# grouped_results = xr.Dataset()
-# transfert_coords = ["CorticalState", "FullStructure", "Condition"]
-
-# for col in transfert_coords:
-#     grouped_results[col] = signals[col].groupby("group_index").map(extract_unique, dim="Contact").unstack()
-# grouped_results = auto_remove_dim(grouped_results, ignored_vars=["group_index"])
-# grouped_results = grouped_results.set_coords(transfert_coords)
-
-
-
 
 ###### Now let's compute stuff on our signals
 @apply_file_func_decorator(".", name="spike_duration", save_group=cache_path+"spike_durations.pkl", recompute=recompute)
@@ -198,8 +189,6 @@ signals = signals.drop_dims(["f2"])
 signal_pairs = xr.merge([signals.rename(**{x:f"{x}_1" for x in signals.coords if not x=="f"}, **{x:f"{x}_1" for x in signals.data_vars}), signals.rename(**{x:f"{x}_2" for x in signals.coords  if not x=="f"}, **{x:f"{x}_2" for x in signals.data_vars})])
 
 
-
-
 def stack_dataset(dataset):
     dataset=dataset.copy()
     dataset["common_duration"] = xr.where(dataset["start_time_1"] > dataset["start_time_2"], 
@@ -227,11 +216,6 @@ def stack_dataset(dataset):
     dataset = dataset.where(dataset["relevant_pair"].any("Contact_pair"), drop=True)
     return dataset
 
-# print(signal_pairs)
-# print((signal_pairs["relevant_pair"]).sum())
-# print(signal_pairs["relevant_pair"].to_dataframe())
-# exit()
-# print((signal_pairs["relevant_pair"]).sum().item())
 if not pathlib.Path(cache_path+"signal_pairs_xarray.pkl").exists():
     stack_size = 100
     signal_pairs_split = [signal_pairs.isel(dict(Contact_1=slice(stack_size*i, stack_size*(i+1)), Contact_2=slice(stack_size*j, stack_size*(j+1)))) 
@@ -247,21 +231,8 @@ if not pathlib.Path(cache_path+"signal_pairs_xarray.pkl").exists():
     pickle.dump(signal_pairs, open(cache_path+"signal_pairs_xarray.pkl", "wb"))
 else:
     signal_pairs = pickle.load(open(cache_path+"signal_pairs_xarray.pkl", "rb"))
-
-# signal_pairs_split_stacked = [stack_dataset(dataset) for dataset in tqdm.tqdm(signal_pairs_split, desc="Stacking")]
-
     
 print(signal_pairs)
-# exit()
-
-# signal_pairs["sig_preprocessing_pair"] = signal_pairs["sig_preprocessing_1"] + signal_pairs["sig_preprocessing_2"]
-# signal_pairs=signal_pairs.stack(sig_preprocessing_pair=("sig_preprocessing_1","sig_preprocessing_2"), Contact_pair=("Contact_1", "Contact_2"))
-# signal_pairs["relevant_contact_pair"] = signal_pairs["relevant_pair"].any("sig_preprocessing_pair")
-# signal_pairs["relevant_sigprocessing_pair"] = signal_pairs["relevant_pair"].any("Contact_pair")
-# signal_pairs = signal_pairs.where(signal_pairs["relevant_contact_pair"], drop=True)
-# signal_pairs = signal_pairs.where(signal_pairs["relevant_sigprocessing_pair"], drop=True)
-# logger.info("Done creating signal pair dataset")
-# print(signal_pairs)
 
 @apply_file_func_decorator(cache_path, name="coherence", out_folder=cache_path+"coherence", recompute=recompute, n=2)
 def compute_coherence(resampled_1: xr.DataArray, resampled_2: xr.DataArray, final_fs):
@@ -294,7 +265,6 @@ def compute_coherence(resampled_1: xr.DataArray, resampled_2: xr.DataArray, fina
     return r
     
 
-# input("Waiting to compute coherence")
 signal_pairs["coherence"] = compute_coherence(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 50)
 print(signal_pairs)
 pickle.dump(signal_pairs, open(cache_path+"signal_pairs_computed.pkl", "wb"))
