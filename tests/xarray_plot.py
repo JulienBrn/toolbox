@@ -52,8 +52,7 @@ print(signals_sig_type)
 
 signal_pairs: xr.Dataset = pickle.load(open(cache_path+"signal_pairs_computed.pkl", "rb"))
 # signal_pairs = signal_pairs.rename(f3="f2")
-signal_pairs["Healthy_1"] = xr.where(signal_pairs["Species_1"]=="Human", 0,  signal_pairs["Healthy_1"])
-signal_pairs["Healthy_2"] = xr.where(signal_pairs["Species_2"]=="Human", 0,  signal_pairs["Healthy_2"])
+signal_pairs = signal_pairs.where((signal_pairs["FullStructure_1"] != "STN_VMNR") & (signal_pairs["FullStructure_2"] != "STN_VMNR"), drop=True)
 ok = [signal_pairs[f"{col}_1"].equals(signal_pairs[f"{col}_2"]) for col in group_index_cols]
 if np.all(ok):
     for col in group_index_cols:
@@ -61,7 +60,7 @@ if np.all(ok):
         signal_pairs=signal_pairs.set_coords(col)
         signal_pairs = signal_pairs.drop(f"{col}_2")
 else:
-    print(signal_pairs)
+    # print(signal_pairs)
     print(ok)
     raise Exception("Problem in data")
     
