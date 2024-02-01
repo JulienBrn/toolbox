@@ -85,6 +85,21 @@ class FigurePlot:
             facetgrid.tight_layout(*args, **kwargs)
         return self
     
+    def maximize(self):
+        for facetgrid in self.figures.values():
+            facetgrid.figure.set_figwidth(19)
+            facetgrid.figure.set_figheight(10)
+            facetgrid.figure.canvas.manager.window.showMaximized()
+        return self
+        
+    def save_pdf(self, pdf_writer_or_path):
+        from matplotlib.backends.backend_pdf import PdfPages
+        if not isinstance(pdf_writer_or_path, PdfPages):
+            pdf_writer_or_path = PdfPages(pdf_writer_or_path)
+        for facetgrid in self.figures.values():
+            pdf_writer_or_path.savefig(facetgrid.figure)
+        return self
+    
     def refline(self, *args, **kwargs):
         for facetgrid in self.figures.values():
             facetgrid.refline(*args, **kwargs)
@@ -102,7 +117,7 @@ class FigurePlot:
                 except:
                     if isinstance(ysort, float):
                         col = data.columns[np.argmin(np.abs(np.array(data.columns)-ysort))]
-                        print(f"Sorting by {col}")
+                        # print(f"Sorting by {col}")
                         data = data.sort_values(col)
                     else:
                         raise
@@ -130,3 +145,5 @@ class FigurePlot:
 
         for facetgrid in self.figures.values():
             facetgrid.map_dataframe(colormesh, **kwargs)
+
+        

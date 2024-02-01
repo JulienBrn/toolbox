@@ -7,7 +7,7 @@ from scipy.stats import gaussian_kde
 import math, itertools, pickle, logging, beautifullogger, shutil
 from autosave import Autosave
 
-
+logger=logging.getLogger(__name__)
 class DimRemoveExcpt(Exception):pass
 
 def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None, name = None, recompute=False, save_group=None, n=1, path_arg=None, n_ret=1, output_core_dims=None, n_outcore_nans=None,**kwargs):
@@ -151,8 +151,8 @@ def auto_remove_dim(dataset:xr.Dataset, ignored_vars=None, kept_var=None, dim_li
         vars = kept_var
     if not ignored_vars is None:
         vars = list(set(vars) - set(ignored_vars))
-    for var in set(list(dataset.keys())+list(dataset.coords)) - set(vars):
-        ndataset[var] = dataset[var]
+    # for var in set(list(dataset.keys())+list(dataset.coords)) - set(vars):
+    #     ndataset[var] = dataset[var]
     for var in tqdm.tqdm(vars, desc="fit var dims", disable=True):
         # if var in ignored_vars:
         #     ndataset[var] = dataset[var]

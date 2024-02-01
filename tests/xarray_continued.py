@@ -90,6 +90,7 @@ signals["start_time"] = xr.where(signals["sig_type"]=="spike_times",
 )
 
 signals["end_time"] = signals["start_time"] + signals["duration"]
+signals=signals.where(signals["duration"]>2)
 
 @apply_file_func_decorator(".", name="resampled_normalize", out_folder=cache_path+"resampled_normalized", recompute=recompute)
 def resample_normalize_data(arr, sig_type, new_fs):
@@ -140,7 +141,11 @@ def compute_spectrogram(arr, final_fs, debug_path):
     from xarray_helper import resample_arr
     
     window_size = int(arr["fs"].item()/final_fs)
-    f,t,spectrogram = scipy.signal.spectrogram(arr.to_numpy(), arr["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+    try:
+        f,t,spectrogram = scipy.signal.spectrogram(arr.to_numpy(), arr["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+    except:
+        print(window_size)
+        raise
     spectrogram = xr.DataArray(data=spectrogram, dims=["f", "t"], coords=dict(
         t=t+arr["t"].min().item(),
         f=f,
@@ -150,7 +155,7 @@ def compute_spectrogram(arr, final_fs, debug_path):
     final = final.assign_coords(fs=final_fs)
     return final
 
-signals["spectrogram"] = compute_spectrogram(signals["resampled_continuous_path"], 50)
+signals["spectrogram"] = compute_spectrogram(signals["resampled_continuous_path"], 10)
 
 @apply_file_func_decorator(cache_path, name="averaging along axis", n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=46, save_group=cache_path+"averaging.pkl", recompute=recompute)
 def average_along_axis(a: xr.DataArray, axis: str):
@@ -158,7 +163,7 @@ def average_along_axis(a: xr.DataArray, axis: str):
     res = r.to_numpy(), r["f"].to_numpy()
     return res
 
-@apply_file_func_decorator(cache_path, name="averaging along axis", n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=10, save_group=cache_path+"averaging_2.pkl", recompute=recompute)
+@apply_file_func_decorator(cache_path, name="averaging along axis", n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=48, save_group=cache_path+"averaging_2.pkl", recompute=recompute)
 def average_along_axis_2(a: xr.DataArray, axis: str):
     r = a.where((a != np.inf) & (a != -np.inf)).mean(axis)
     res = r.to_numpy(), r["f"].to_numpy()
@@ -265,7 +270,52 @@ def compute_coherence(resampled_1: xr.DataArray, resampled_2: xr.DataArray, fina
     return r
     
 
-signal_pairs["coherence"] = compute_coherence(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 50)
+signal_pairs["coherence_path"] = compute_coherence(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 50)
+
+@apply_file_func_decorator(cache_path, name="averaging along axis_3", n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=46, save_group=cache_path+"averaging_3.pkl", recompute=recompute)
+def average_along_axis_3(a: xr.Dataset, axis: str):
+    a =a["wct"]
+    r = a.where((a != np.inf) & (a != -np.inf)).mean(axis)
+    res = r.to_numpy(), r["f"].to_numpy()
+    return res
+
+coherence, freqs = average_along_axis_3(signal_pairs["coherence_path"], "t")
+coherence["freqs"] = freqs
+signal_pairs["coherence_wct"] = auto_remove_dim(coherence.to_dataset(), kept_var=["freqs"])["coherence_path"]
+signal_pairs["f"] = signal_pairs["freqs"]
+signal_pairs = signal_pairs.drop_vars("freqs")
+
+
+@apply_file_func_decorator(cache_path, name="coherence_scipy", n=2, n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=48, save_group=cache_path+"coherence_scipy.pkl", recompute=recompute)
+def compute_coherence_scipy(resampled_1: xr.DataArray, resampled_2: xr.DataArray, final_fs):
+    import scipy.signal
+    from xarray_helper import resample_arr, normalize
+    try:
+        data= xr.merge([resampled_1.to_dataset(name="sig_1"), resampled_2.to_dataset(name="sig_2")], join="inner")
+    except:
+        raise
+    window_size = int(data["fs"].item()/final_fs)
+    try:
+        f,coherence = scipy.signal.coherence(normalize(data["sig_1"]).to_numpy(), normalize(data["sig_2"]).to_numpy(), data["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+    except:
+        print(window_size)
+        raise
+    res = xr.DataArray(data=coherence, dims=["f"], coords=dict(f=f))
+    res = res.sel(f=slice(3, 50))
+    # f, axs = plt.subplots(1, 2)
+    # axs[0].plot(data["t"], data["sig_1"], label="sig_1")
+    # axs[0].plot(data["t"], data["sig_2"], label="sig_2")
+    # axs[1].plot(res["f"], res, label="coherence")
+    # plt.legend()
+    # plt.show()
+    return res.to_numpy(), res["f"].to_numpy()
+
+coherence, freqs = compute_coherence_scipy(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 10)
+coherence["freqs"] = freqs
+signal_pairs["coherence_scipy"] = auto_remove_dim(coherence.rename(f="f2").to_dataset(name="coherence_scipy"), kept_var=["freqs"])["coherence_scipy"]
+signal_pairs["f2"] = signal_pairs["freqs"]
+signal_pairs = signal_pairs.drop_vars("freqs")
+
 print(signal_pairs)
 pickle.dump(signal_pairs, open(cache_path+"signal_pairs_computed.pkl", "wb"))
 
