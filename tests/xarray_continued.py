@@ -209,12 +209,15 @@ def stack_dataset(dataset):
     dataset["relevant_pair"] = (
         (dataset["Session_1"] == dataset["Session_2"])
         & (dataset["Contact_1"] != dataset["Contact_2"]) 
-        & (dataset["Structure_1"] == dataset["Structure_2"])
-        & (dataset["sig_type_1"] =="bua")
-        & (dataset["sig_type_2"] =="spike_times")
+        & (dataset["sig_preprocessing_1"] <= dataset["sig_preprocessing_2"])
+        & ((dataset["sig_preprocessing_1"] < dataset["sig_preprocessing_2"]) | (dataset["Contact_1"] < dataset["Contact_2"]))
         & (~dataset["resampled_continuous_path_1"].isnull())
         & (~dataset["resampled_continuous_path_2"].isnull())
         &  (dataset["common_duration"] >10)
+
+        # & (dataset["Structure_1"] == dataset["Structure_2"])
+        # & (dataset["sig_type_1"] =="bua")
+        # & (dataset["sig_type_2"] =="spike_times")
     )
     dataset=dataset.stack(sig_preprocessing_pair=("sig_preprocessing_1","sig_preprocessing_2"), Contact_pair=("Contact_1", "Contact_2"))
     dataset = dataset.where(dataset["relevant_pair"].any("sig_preprocessing_pair"), drop=True)
@@ -231,8 +234,10 @@ if not pathlib.Path(cache_path+"signal_pairs_xarray.pkl").exists():
     with concurrent.futures.ProcessPoolExecutor(max_workers=30) as executor:
         futures = [executor.submit(stack_dataset, dataset) for dataset in signal_pairs_split]
         signal_pairs_split_stacked = [future.result() for future in tqdm.tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Stacking")]
-    signal_pairs_split_stacked = [d.drop_vars(["Date_1", "Date_2"]) for d in signal_pairs_split_stacked]
+    signal_pairs_split_stacked: List[xr.Dataset] = [d.drop_vars(["Date_1", "Date_2"]) for d in signal_pairs_split_stacked]
+    logger.info(f"Total number of Contact pairs is {int(np.sum([d.sizes['Contact_pair'] for d in signal_pairs_split_stacked]))} {int(np.max([d.sizes['sig_preprocessing_pair'] for d in signal_pairs_split_stacked]))}")
     signal_pairs = xr.merge(signal_pairs_split_stacked)
+    logger.info("Dumping")
     pickle.dump(signal_pairs, open(cache_path+"signal_pairs_xarray.pkl", "wb"))
 else:
     signal_pairs = pickle.load(open(cache_path+"signal_pairs_xarray.pkl", "rb"))
@@ -270,7 +275,7 @@ def compute_coherence(resampled_1: xr.DataArray, resampled_2: xr.DataArray, fina
     return r
     
 
-signal_pairs["coherence_path"] = compute_coherence(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 50)
+# signal_pairs["coherence_path"] = compute_coherence(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 50)
 
 @apply_file_func_decorator(cache_path, name="averaging along axis_3", n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=46, save_group=cache_path+"averaging_3.pkl", recompute=recompute)
 def average_along_axis_3(a: xr.Dataset, axis: str):
@@ -279,11 +284,11 @@ def average_along_axis_3(a: xr.Dataset, axis: str):
     res = r.to_numpy(), r["f"].to_numpy()
     return res
 
-coherence, freqs = average_along_axis_3(signal_pairs["coherence_path"], "t")
-coherence["freqs"] = freqs
-signal_pairs["coherence_wct"] = auto_remove_dim(coherence.to_dataset(), kept_var=["freqs"])["coherence_path"]
-signal_pairs["f"] = signal_pairs["freqs"]
-signal_pairs = signal_pairs.drop_vars("freqs")
+# coherence, freqs = average_along_axis_3(signal_pairs["coherence_path"], "t")
+# coherence["freqs"] = freqs
+# signal_pairs["coherence_wct"] = auto_remove_dim(coherence.to_dataset(), kept_var=["freqs"])["coherence_path"]
+# signal_pairs["f"] = signal_pairs["freqs"]
+# signal_pairs = signal_pairs.drop_vars("freqs")
 
 
 @apply_file_func_decorator(cache_path, name="coherence_scipy", n=2, n_ret=2, output_core_dims=[["f"], ["f"]], n_outcore_nans=48, save_group=cache_path+"coherence_scipy.pkl", recompute=recompute)
@@ -296,11 +301,15 @@ def compute_coherence_scipy(resampled_1: xr.DataArray, resampled_2: xr.DataArray
         raise
     window_size = int(data["fs"].item()/final_fs)
     try:
-        f,coherence = scipy.signal.coherence(normalize(data["sig_1"]).to_numpy(), normalize(data["sig_2"]).to_numpy(), data["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+        f,coherence_norm = scipy.signal.coherence(normalize(data["sig_1"]).to_numpy(), normalize(data["sig_2"]).to_numpy(), data["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
+        f2, csd = scipy.signal.csd(normalize(data["sig_1"]).to_numpy(), normalize(data["sig_2"]).to_numpy(), data["fs"].item(), nperseg=10*window_size, noverlap=9*window_size)
     except:
         print(window_size)
         raise
-    res = xr.DataArray(data=coherence, dims=["f"], coords=dict(f=f))
+    res = xr.Dataset()
+    res["coherence_norm"] = xr.DataArray(data=coherence_norm, dims=["f"], coords=dict(f=f))
+    res["coherence_phase"] = xr.DataArray(data=np.angle(csd), dims=["f"], coords=dict(f=f2))
+    res["coherence"] = res["coherence_norm"] * np.exp(1j*res["coherence_phase"])
     res = res.sel(f=slice(3, 50))
     # f, axs = plt.subplots(1, 2)
     # axs[0].plot(data["t"], data["sig_1"], label="sig_1")
@@ -308,7 +317,8 @@ def compute_coherence_scipy(resampled_1: xr.DataArray, resampled_2: xr.DataArray
     # axs[1].plot(res["f"], res, label="coherence")
     # plt.legend()
     # plt.show()
-    return res.to_numpy(), res["f"].to_numpy()
+    return res["coherence"].to_numpy(), res["f"].to_numpy()
+
 
 coherence, freqs = compute_coherence_scipy(signal_pairs["resampled_continuous_path_1"].where(signal_pairs["relevant_pair"]), signal_pairs["resampled_continuous_path_2"].where(signal_pairs["relevant_pair"]), 10)
 coherence["freqs"] = freqs

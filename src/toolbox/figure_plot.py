@@ -71,9 +71,12 @@ class FigurePlot:
                     raise
         self.data=data
 
-    def map(self, func, *args, **kwargs):
+    def map(self, func, *args, is_plt_func=False, **kwargs):
         for facetgrid in self.figures.values():
-            facetgrid.map_dataframe(func, *args, **kwargs)
+            if is_plt_func:
+                facetgrid.map(func, *args, **kwargs)
+            else:
+                facetgrid.map_dataframe(func, *args, **kwargs)
         return self
     
     def add_legend(self, *args, **kwargs):
@@ -95,9 +98,14 @@ class FigurePlot:
     def save_pdf(self, pdf_writer_or_path):
         from matplotlib.backends.backend_pdf import PdfPages
         if not isinstance(pdf_writer_or_path, PdfPages):
-            pdf_writer_or_path = PdfPages(pdf_writer_or_path)
+            pathlib.Path(pdf_writer_or_path).parent.mkdir(exist_ok=True, parents=True)
+            writer = PdfPages(pdf_writer_or_path)
+        else:
+            writer = pdf_writer_or_path
         for facetgrid in self.figures.values():
-            pdf_writer_or_path.savefig(facetgrid.figure)
+            writer.savefig(facetgrid.figure)
+        if not isinstance(pdf_writer_or_path, PdfPages):
+            writer.close()
         return self
     
     def refline(self, *args, **kwargs):
@@ -107,9 +115,11 @@ class FigurePlot:
     
     def pcolormesh(self, *args, **kwargs):
         def colormesh(data: pd.DataFrame, x: str, y:str, value: str, ysort=None, xlabels=True, ylabels=True, **kwargs):
+        #    print(data)
            data = data.set_index([x, y], append=False)
            if data.index.duplicated(keep=False).any():
-               raise Exception(f"Duplication Examples:{data.index[data.index.duplicated(keep=False)]}")
+               duplicated_indices = data.index.duplicated(keep=False) 
+               raise Exception(f"Duplication Examples:{data[duplicated_indices].sort_index()}")
            data = data[value].unstack(x)
            if not ysort is None:
                 try:
@@ -145,5 +155,6 @@ class FigurePlot:
 
         for facetgrid in self.figures.values():
             facetgrid.map_dataframe(colormesh, **kwargs)
+        return self
 
         
