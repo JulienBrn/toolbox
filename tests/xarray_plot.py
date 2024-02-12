@@ -6,7 +6,7 @@ import matplotlib as mpl, seaborn as sns
 from scipy.stats import gaussian_kde
 import math, itertools, pickle, logging, beautifullogger
 from autosave import Autosave
-from xarray_helper import apply_file_func, auto_remove_dim, nunique, apply_file_func_decorator, extract_unique
+from xarray_helper import apply_file_func, auto_remove_dim, nunique, apply_file_func_decorator, extract_unique, mk_bins
 import scipy.signal
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -20,8 +20,26 @@ logging.getLogger("flox").setLevel(logging.WARNING)
 tqdm.tqdm.pandas(desc="Computing")
 
 MODE: Literal["TEST", "ALL", "SMALL", "BALANCED"]="ALL"
-FIGS = ["coherence_mean_figs_structure"]
-DISPLAY=False
+FIGS = ["coherence_phase_figs_structure"] #["pwelch_mean_figs_structure", "pwelch_mean_figs_species", "coherence_mean_figs_structure"]
+DISPLAY=True
+
+
+# test = xr.DataArray(np.linspace(0, 1, 1000).reshape(10, 10, 10), dims=["t", "grp", "x"], coords=dict(t=np.linspace(0, 10, 10), grp=np.linspace(0, 10, 10), x=np.linspace(0, 10, 10)))
+# weights = xr.DataArray(np.linspace(0, 1, 1000).reshape(10, 10, 10), dims=["t", "grp", "x"], coords=dict(t=np.linspace(0, 10, 10), grp=np.linspace(0, 10, 10), x=np.linspace(0, 10, 10)))
+# print(test)
+# print(mk_bins(test, "t", "binned", np.linspace(0, 1, 11), weights=weights))
+# exit()
+
+
+
+
+
+
+
+
+
+
+
 
 
 match MODE:
@@ -32,6 +50,7 @@ match MODE:
     case "SMALL":
         cache_path = "/media/julien/data1/JulienCache/Small/"
 
+
 group_cols = ["Species", "Structure", "Healthy"]
 pair_group_cols = [x+"_1" for x in group_cols] + [x+"_2" for x in group_cols]
 species_order = ["Rat", "Monkey", "Human"]
@@ -39,11 +58,12 @@ structure_order = ["STN", "GPe", "STR"]
 condition_order = [0, 1]
 sig_type_order=["bua", "lfp", "spike_times"]
 
+logger.info("Starting")
 signals: xr.Dataset = pickle.load(open(cache_path+"signals_computed.pkl", "rb"))
 signal_pairs: xr.Dataset = pickle.load(open(cache_path+"signal_pairs_computed.pkl", "rb"))
 signal_pairs = signal_pairs.where((signal_pairs["FullStructure_1"] != "STN_VMNR") & (signal_pairs["FullStructure_2"] != "STN_VMNR"), drop=True)
 # signal_pairs = signal_pairs.sel(sig_preprocessing_pair=[("bua", "neuron_0"), ("bua", "neuron_1"), ("bua", "neuron_2")])
-
+logger.info("Loaded")
 
 dataset = xr.merge([signals, signal_pairs])
 dataset = dataset[[var for var in dataset.variables if ("pwelch" in var) or "coherence" in var]]
@@ -81,32 +101,99 @@ for dim, groupcols in dict(Contact=group_cols, Contact_pair=pair_group_cols, sig
 
 dataset["coherence_norm"] = np.abs(dataset["coherence"])
 
-grouped_dataset = xr.Dataset()
-
-grouped_dataset["pwelch"] = dataset["pwelch"].groupby("sig_preprocessing_grp").mean().groupby("Contact_grp").mean()
-grouped_dataset["coherence"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").mean()
-grouped_dataset["coherence_norm"] = dataset["coherence_norm"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").mean()
-grouped_dataset["n_coherence"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").count("Contact_pair")
-grouped_dataset = grouped_dataset.set_coords("n_coherence")
-print(grouped_dataset)
-# print(np.angle(grouped_dataset["coherence"]))
-grouped_dataset["coherence_phase"] = xr.apply_ufunc(np.angle, grouped_dataset["coherence"])
-grouped_dataset["coherence_validity"] = np.abs(grouped_dataset["coherence"])/grouped_dataset["coherence_norm"]
-grouped_dataset["f_max"] = grouped_dataset["coherence_norm"].sel(f_interp=slice(7, 40)).idxmax("f_interp")
-
-# selected = (
-#     grouped_dataset["coherence_norm"].where(grouped_dataset["is_scipy_freq"]).sel(f_interp=slice(7, 40))
-#     .where((grouped_dataset["f_interp"] > grouped_dataset["f_max"]-2) & (grouped_dataset["f_interp"] < grouped_dataset["f_max"]+2))
-# )
-selected = (grouped_dataset["f_interp"] > grouped_dataset["f_max"]-2) & (grouped_dataset["f_interp"] < grouped_dataset["f_max"]+2)
-grouped_dataset["coherence_phase"] = grouped_dataset["coherence_phase"].where(selected)
+# dataset_contact = xr.Dataset()
+# dataset_contact["pwelch"]= dataset["pwelch"].groupby("sig_preprocessing_grp").mean()
+# grouping = dataset[["coherence", "coherence_norm"]].groupby("sig_preprocessing_pair_grp")
+# dataset_contact[["coherence", "coherence_norm"]] = grouping.mean()
+# # dataset_contact["coherence"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean()
+# # dataset_contact["coherence_norm"] = dataset["coherence_norm"].groupby("sig_preprocessing_pair_grp").mean()
 
 dataset_contact = xr.Dataset()
 dataset_contact["pwelch"] = dataset["pwelch"].groupby("sig_preprocessing_grp").mean()
 dataset_contact["coherence"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean()
 dataset_contact["coherence_norm"] = dataset["coherence_norm"].groupby("sig_preprocessing_pair_grp").mean()
-# dataset = dataset.groupby("sig_type_2").mean()
+
+logger.info("first_grp_done")
+# print(dataset_contact)
+# exit()
+grouped_dataset = xr.Dataset()
+
+# grouping = dataset_contact["pwelch"].groupby("Contact_grp")
+# grouped_dataset["n_contacts"] = grouping.count()
+# grouped_dataset["pwelch"] = grouping.mean()
 # print(grouped_dataset)
+# grouping = dataset_contact[["coherence", "coherence_norm"]].groupby("Contact_pair_grp")
+# grouped_dataset["n_contact_pairs"] = grouping.count()["coherence"]
+# res = grouping.mean("Contact_pair")
+
+# grouped_dataset["coherence"] = res["coherence"]
+# grouped_dataset["coherence_norm"] = res["coherence_norm"]
+# print(grouped_dataset)
+# grouped_dataset = grouped_dataset.set_coords(["n_contact_pairs", "n_contacts"])
+
+# print(grouped_dataset)
+# means = grouping.mean()
+# counts = grouping.count()
+# grouped_dataset = xr.merge([means, counts.rename({x:f"n_{x}" for x in counts.data_vars})])
+
+
+
+# print(grouped_dataset)
+# exit()
+grouped_dataset["pwelch"] = dataset["pwelch"].groupby("sig_preprocessing_grp").mean().groupby("Contact_grp").mean()
+grouped_dataset["n_contacts"] = dataset["pwelch"].groupby("sig_preprocessing_grp").mean().groupby("Contact_grp").count("Contact")
+grouped_dataset["coherence"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").mean()
+grouped_dataset["coherence_norm"] = dataset["coherence_norm"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").mean()
+grouped_dataset["n_contact_pairs"] = dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").count("Contact_pair")
+grouped_dataset = grouped_dataset.set_coords(["n_contact_pairs", "n_contacts"])
+grouped_dataset["coherence_phase_bins"] = (
+    dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp")
+    .map(lambda x: mk_bins(xr.apply_ufunc(np.angle, x), "Contact_pair", "phase_bins", np.linspace(-np.pi, np.pi, 37), weights=np.abs(x)))
+)
+
+
+# phase_bins = np.linspace(-np.pi, np.pi, 20)
+# grouped_dataset["coherence_phase_bins"] = (
+#     dataset["coherence"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp")
+#     .map(lambda x: x.groupby_bins("coherence_phase")mk_bins(xr.apply_ufunc(np.angle, x), "Contact_pair", "phase_bins", np.linspace(-np.pi, np.pi, 37), weights=np.abs(x)))
+# )
+
+
+grouped_dataset["coherence_phase_bins"] = grouped_dataset["coherence_phase_bins"]/grouped_dataset["coherence_phase_bins"].mean("phase_bins")
+# def compute_interval(d: xr.DataArray):
+#     def compute(arr):
+#         print(arr.shape)
+#         res = scipy.stats.bootstrap((arr,), np.mean, axis=-1, vectorized=True, batch=100, n_resamples=100)
+#         # print(res.confidence_interval)
+
+#         # print(res.confidence_interval.low.shape)
+#         return np.stack([res.confidence_interval.low, res.confidence_interval.high], axis=-1)
+#     res: xr.DataArray= xr.apply_ufunc(compute, d, input_core_dims=[["Contact_pair"]], output_core_dims=(("delimiter_side", ),))
+#     res = res.assign_coords(delimiter_side=["low", "high"])
+#     print(res.shape)
+#     return res
+
+# grouped_dataset["coherence_norm_95interval"] = dataset["coherence_norm"].groupby("sig_preprocessing_pair_grp").mean().groupby("Contact_pair_grp").map(compute_interval)
+logger.info("second_grp_done")
+
+# print(grouped_dataset)
+# print(np.angle(grouped_dataset["coherence"]))
+grouped_dataset["coherence_phase"] = xr.apply_ufunc(np.angle, grouped_dataset["coherence"])
+grouped_dataset["coherence_validity"] = np.abs(grouped_dataset["coherence"])/grouped_dataset["coherence_norm"]
+grouped_dataset["f_max"] = grouped_dataset["coherence_norm"].sel(f_interp=slice(7, 40)).idxmax("f_interp")
+
+# print(grouped_dataset["coherence_phase_bins"].sel(f_interp=grouped_dataset["f_max"].fillna(grouped_dataset["f_interp"].min())))
+# exit()
+
+selected = (grouped_dataset["f_interp"] > grouped_dataset["f_max"]-2) & (grouped_dataset["f_interp"] < grouped_dataset["f_max"]+2) & grouped_dataset["is_scipy_freq"]
+grouped_dataset["coherence_phase"] = grouped_dataset["coherence_phase"].where(selected)
+
+
+
+
+logger.info("Computing done")
+# dataset = dataset.groupby("sig_type_2").mean()
+print(grouped_dataset)
 
 for col in group_cols:
     if grouped_dataset[f"{col}_1"].equals(grouped_dataset[f"{col}_2"]):
@@ -122,12 +209,12 @@ print(grouped_dataset)
 figs={}
 
 figs["pwelch_mean_figs_structure"] = lambda: toolbox.FigurePlot(
-    data = grouped_dataset["pwelch"].to_dataframe(name="pwelch").dropna(axis="index"),
+    data = grouped_dataset["pwelch"].where(grouped_dataset["n_contacts"] > 0).to_dataframe(name="pwelch").dropna(axis="index", subset="pwelch"),
     figures="spectral_analysis_function", col="Structure", row="sig_type", sharey=False, margin_titles=True, fig_title="mean_pwelch_structure_{spectral_analysis_function}", row_order=sig_type_order,
 ).map(sns.lineplot, x="f_interp", y="pwelch", hue="Species", style="Healthy", hue_order=species_order, style_order=condition_order).add_legend()
 
 figs["pwelch_mean_figs_species"] = lambda: toolbox.FigurePlot(
-    data = grouped_dataset["pwelch"].to_dataframe(name="pwelch").dropna(axis="index", thresh=2),
+    data = grouped_dataset["pwelch"].where(grouped_dataset["n_contacts"] > 0).to_dataframe(name="pwelch").dropna(axis="index", subset="pwelch"),
     figures="spectral_analysis_function", col="Species", row="sig_type", sharey=False, margin_titles=True, fig_title="mean_pwelch_species_{spectral_analysis_function}", row_order=sig_type_order,
 ).map(sns.lineplot, x="f_interp", y="pwelch", hue="Structure", style="Healthy", 
       hue_order=structure_order, style_order=condition_order, palette=sns.color_palette("dark", n_colors=len(structure_order))
@@ -153,7 +240,7 @@ def debug(*args, **kwargs):
     exit()
 
 figs["coherence_mean_figs_structure"] = lambda: (toolbox.FigurePlot(
-    data = grouped_dataset[["coherence_norm", "coherence_phase", "coherence_validity"]].where(grouped_dataset["n_coherence"] > 10).to_dataframe().dropna(axis="index", subset="coherence_norm"),
+    data = grouped_dataset[["coherence_norm", "coherence_phase", "coherence_validity"]].where(grouped_dataset["n_contact_pairs"] > 10).to_dataframe().dropna(axis="index", subset="coherence_norm"),
     figures=["spectral_analysis_function", "sig_type_1", "sig_type_2"], col="Structure_1", row="Structure_2", 
     sharey=True, margin_titles=True, fig_title="mean_coherence_structure_{spectral_analysis_function}, {sig_type_1}, {sig_type_2}", 
     row_order=structure_order, col_order=structure_order,
@@ -161,12 +248,22 @@ figs["coherence_mean_figs_structure"] = lambda: (toolbox.FigurePlot(
 .map(quiver,  x="f_interp", y="coherence_norm", angles="coherence_phase", hue="Species(common)", size="coherence_validity", zero=np.pi/2, width=0.005, hue_order=species_order).add_legend()
 )
 
-figs["coherence_mean_figs_species"] = lambda: toolbox.FigurePlot(
-    data = grouped_dataset[["coherence_norm", "coherence_phase"]].to_dataframe().dropna(axis="index"),
-    figures=["spectral_analysis_function", "sig_type_1", "sig_type_2"], col="Species(common)", row="Structure_2", 
-    sharey=True, margin_titles=True, fig_title="mean_coherence_structure_{spectral_analysis_function}, {sig_type_1}, {sig_type_2}", 
-    row_order=structure_order, col_order=species_order,
-).map(sns.lineplot, x="f_interp", y="coherence_norm", hue="Structure_1", style="Healthy(common)", hue_order=structure_order, style_order=condition_order).add_legend()
+
+figs["coherence_phase_figs_structure"] = lambda: (toolbox.FigurePlot(
+    data = grouped_dataset[["coherence_phase_bins"]].sel(f_interp=grouped_dataset["f_max"].fillna(grouped_dataset["f_interp"].min())).where(grouped_dataset["n_contact_pairs"] > 10).to_dataframe().dropna(axis="index", subset="coherence_phase_bins"),
+    figures=["spectral_analysis_function", "sig_type_1", "sig_type_2"], col="Structure_1", row="Structure_2", 
+    sharey=False, margin_titles=True, fig_title="coherence_phase_bins_structure_{spectral_analysis_function}, {sig_type_1}, {sig_type_2}", 
+    row_order=structure_order, col_order=structure_order,
+    # subplot_kws=dict(projection='polar'), despine=False,
+).map(sns.scatterplot, x="phase_bins", y="coherence_phase_bins", hue="Species(common)", style="Healthy(common)", hue_order=species_order, style_order=condition_order)
+.add_legend()
+)
+# figs["coherence_mean_figs_species"] = lambda: toolbox.FigurePlot(
+#     data = grouped_dataset[["coherence_norm", "coherence_phase"]].to_dataframe().dropna(axis="index"),
+#     figures=["spectral_analysis_function", "sig_type_1", "sig_type_2"], col="Species(common)", row="Structure_2", 
+#     sharey=True, margin_titles=True, fig_title="mean_coherence_structure_{spectral_analysis_function}, {sig_type_1}, {sig_type_2}", 
+#     row_order=structure_order, col_order=species_order,
+# ).map(sns.lineplot, x="f_interp", y="coherence_norm", hue="Structure_1", style="Healthy(common)", hue_order=structure_order, style_order=condition_order).add_legend()
 
 
 

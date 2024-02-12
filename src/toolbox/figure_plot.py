@@ -11,7 +11,7 @@ import graphchain
 logger = logging.getLogger(__name__)
 
 def transform_kwarg(x, data):
-    if hasattr(x, "__iter__") and not isinstance(x, str) and len(x)<10:
+    if hasattr(x, "__iter__") and not isinstance(x, str) and len(x)<10 and not isinstance(x, dict):
         cols = []
         for col in x:
             if not col in data.columns and not col in data.index.names:
@@ -77,6 +77,10 @@ class FigurePlot:
                 facetgrid.map(func, *args, **kwargs)
             else:
                 facetgrid.map_dataframe(func, *args, **kwargs)
+        return self
+    def set(self, *args, **kwargs):
+        for facetgrid in self.figures.values():
+            facetgrid.set(*args, **kwargs)
         return self
     
     def add_legend(self, *args, **kwargs):

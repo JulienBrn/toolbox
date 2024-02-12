@@ -86,7 +86,7 @@ def apply_file_func(func, in_folder, path: xr.DataArray, *args, out_folder=None,
                 # input()
 
             else:
-                res= tuple([np.nan for _ in range(n_ret)]) if not n_ret is 1 else np.nan
+                res= tuple([np.nan for _ in range(n_ret)]) if not n_ret == 1 else np.nan
             return res
     if not save_group is None:
         group_path = pathlib.Path(save_group)
@@ -241,3 +241,40 @@ def extract_unique(a: xr.DataArray, dim: str):
         else:
             raise Exception(f"Can not extract unique value. Array:\n {a}\nExample\n{a[np.argmax(nums)]}")
     return xr.apply_ufunc(get_uniq, a, input_core_dims=[[dim]])
+
+
+def mk_bins(a: xr.DataArray, dim, new_dim, coords, weights=None):
+    # print(f"input arr sum {float(a.sum())}")
+    if not weights is None:
+        tmp = xr.apply_ufunc(lambda x, y: f"{x}_{y}", a, weights, vectorize=True)
+    else:
+        tmp = xr.apply_ufunc(lambda x: f"{x}_{1}", a, vectorize=True)
+    weights = None
+    # print(a)
+    # print(weights)
+    # exit()
+    def compute(a: np.ndarray, weights=None):
+        # if np.nansum(a) >0:
+        #     print(f"compute input sum {np.nansum(a)}")
+        # print(a)
+        def make_hist(a: np.ndarray, weights=None):
+            # print(f"make_hist input sum {np.nansum(a)}")
+            # import time
+            # time.sleep(0.01)
+            tmp = np.array([list(x.split("_")) for x in a])
+            a,weights = tmp[:, 0].astype(float), tmp[:, 1].astype(float)
+            h, edges = np.histogram(a, coords, weights=weights)
+            return h
+        if weights is None:
+            r = np.apply_along_axis(make_hist, axis=-1, arr= a)
+        else:
+            r = np.apply_along_multiple_axis(make_hist, axis=-1, arrs= [a, weights])
+        # print(r)
+        return r
+    if weights is None:
+        res: xr.DataArray = xr.apply_ufunc(compute, tmp, input_core_dims=[[dim]], output_core_dims=[[new_dim]])
+    else:
+        res: xr.DataArray = xr.apply_ufunc(compute, a, weights, input_core_dims=[[dim], [dim]], output_core_dims=[[new_dim]])
+    # print(res)
+    res = res.assign_coords({new_dim:(coords[1:]+ coords[:-1])/2, f"{new_dim}_low_edge": (new_dim, coords[:-1]), f"{new_dim}_high_edge": (new_dim, coords[1:])})
+    return res
