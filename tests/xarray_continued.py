@@ -60,7 +60,6 @@ signals["time_representation_path"] = xr.apply_ufunc(lambda x: np.where(x=="", n
 signals = signals.where(signals["Structure"].isin(["GPe", "STN", "STR"]), drop=True)
 
 print(signals)
-
 ###### Now let's compute stuff on our signals
 @apply_file_func_decorator(".", name="spike_duration", save_group=cache_path+"spike_durations.pkl", recompute=recompute)
 def compute_spike_duration(arr: xr.DataArray):

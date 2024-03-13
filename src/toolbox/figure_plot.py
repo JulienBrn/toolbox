@@ -58,7 +58,11 @@ class FigurePlot:
                     newtitle = subplot_title.format(**{t[1]: all_dict[t[1]] for t in Formatter().parse(subplot_title)})
                     if "margin_titles" in kwargs and kwargs["margin_titles"]:
                         if default_title:
-                            newtitle = f"{default_title}\n{newtitle}"
+                            # print(newtitle)
+                            if newtitle=="":
+                                newtitle = f"{default_title}\n{newtitle}"
+                            else:
+                                newtitle = f"{newtitle}"
                     ax.set_title(newtitle)
             if fig_title !="":
                 try:
@@ -72,11 +76,13 @@ class FigurePlot:
         self.data=data
 
     def map(self, func, *args, is_plt_func=False, **kwargs):
+        def func2(*args, color=None, **kwargs):
+            return func(*args, **kwargs)
         for facetgrid in self.figures.values():
             if is_plt_func:
-                facetgrid.map(func, *args, **kwargs)
+                facetgrid.map(func2 if not "color" in kwargs else func, *args, **kwargs)
             else:
-                facetgrid.map_dataframe(func, *args, **kwargs)
+                facetgrid.map_dataframe(func2 if not "color" in kwargs else func, *args, **kwargs)
         return self
     def set(self, *args, **kwargs):
         for facetgrid in self.figures.values():
